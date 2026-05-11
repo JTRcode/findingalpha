@@ -1,0 +1,29 @@
+{
+  "core_etfs": {
+    "description": "Small ETF universe for fast intraday setup testing.",
+    "notes": "ETF list is manually curated and not intended to represent historical index membership.",
+    "point_in_time": false,
+    "survivorship_bias": "low"
+  },
+  "liquid_large_caps": {
+    "description": "Current liquid large-cap watchlist for early daily and intraday research.",
+    "notes": "Current winners are overrepresented. Use for workflow development, not clean historical claims.",
+    "point_in_time": false,
+    "survivorship_bias": "high"
+  },
+  "sp500_current": {
+    "description": "Current S&P 500 constituent list fetched from Wikipedia.",
+    "last_updated_utc": "2026-05-11T11:00:40.358434+00:00",
+    "notes": "Current-only S&P 500 list. Good for daily workflow development; not valid for clean historical index backtests.",
+    "point_in_time": false,
+    "source": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+    "survivorship_bias": "high",
+    "symbol_count": 503
+  },
+  "sp500_sample": {
+    "description": "Starter sample, not a complete current or historical S&P 500 list.",
+    "notes": "Use only for quick tests. Replace with point-in-time S&P 500 constituents before serious backtests.",
+    "point_in_time": false,
+    "survivorship_bias": "high"
+  }
+}
