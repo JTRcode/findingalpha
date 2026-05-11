@@ -20,7 +20,11 @@ from trading_screener.research.alpha_eval import (
 )
 from trading_screener.research.forward_returns import add_forward_returns
 from trading_screener.research.intraday_forward_returns import add_intraday_forward_returns
-from trading_screener.research.setup_eval import evaluate_daily_setups, evaluate_setup_b_score_buckets
+from trading_screener.research.setup_eval import (
+    evaluate_daily_setups,
+    evaluate_setup_b_bucket_diagnostics,
+    evaluate_setup_b_score_buckets,
+)
 from trading_screener.signals.daily_playbook import add_daily_playbook_scores, daily_setup_candidates
 from trading_screener.signals.scoring import add_composite_score
 from trading_screener.signals.playbook import add_intraday_setup_scores, intraday_candidates
@@ -120,6 +124,17 @@ def main() -> None:
             evaluate_setup_b_score_buckets(evaluated),
             settings.data_dir / "backtests",
             "setup_b_score_buckets",
+        )
+        setup_b_diagnostics, setup_b_spreads = evaluate_setup_b_bucket_diagnostics(evaluated)
+        write_timestamped_outputs(
+            setup_b_diagnostics,
+            settings.data_dir / "backtests",
+            "setup_b_bucket_diagnostics",
+        )
+        write_timestamped_outputs(
+            setup_b_spreads,
+            settings.data_dir / "backtests",
+            "setup_b_top_bottom_spreads",
         )
 
         print(f"Wrote signal snapshot: {parquet_path}")

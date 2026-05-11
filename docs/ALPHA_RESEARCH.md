@@ -60,6 +60,20 @@ Setup B quality scoring:
 - Structure quality: price holds the 20/50 SMA area.
 - Confirmation quality: close strength, prior-high reclaim, and positive daily return.
 
+Setup B bucket diagnostics report:
+
+- count by quality bucket
+- mean and median forward return
+- win rate
+- standard deviation and standard error
+- t-stat versus zero
+- top bucket minus bottom bucket mean spread
+- top bucket minus bottom bucket median spread
+- win-rate spread
+- rough interpretation label
+
+Interpretation is only a screen. Promising diagnostics still need visual review, out-of-sample testing, benchmark-relative returns, and transaction-cost checks.
+
 ## Bucket Analysis
 For each score bucket:
 - average forward return

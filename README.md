@@ -124,6 +124,8 @@ The Daily Setups tab also includes a Setup B candlestick/volume chart. Select a 
 
 Setup B candidates are split into visible pass/fail gates: trend, pullback, volume dry-up, structure, and confirmation. Each gate also has a 0-1 quality score. Gates decide whether a row is eligible; quality scores rank the eligible candidates.
 
+Setup B diagnostics are written to `data/backtests/setup_b_bucket_diagnostics_*.csv` and `data/backtests/setup_b_top_bottom_spreads_*.csv`. These include count, mean, median, win rate, standard error, t-stat, and top-bottom spread interpretation.
+
 ## Implementation Status
 The MVP code includes a provider interface, yfinance daily provider, Alpaca historical market-data provider, Massive/Polygon historical market-data provider, Parquet storage helpers, feature generation, composite scoring, timestamped signal snapshots, forward-return bucket evaluation, intraday setup candidates, benchmark comparison, top/bottom spread summaries, a simple basket research helper, transaction-cost sensitivity, CLI, Streamlit dashboard, and tests. This remains phase 1 research software only.
 

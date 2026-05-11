@@ -92,10 +92,18 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
             "mean": "Avg Forward Return",
             "median": "Median Forward Return",
             "win_rate": "Win Rate",
+            "win_rate_spread": "Win Rate Spread",
             "horizon_days": "Horizon Days",
+            "mean_spread": "Mean Spread",
+            "median_spread": "Median Spread",
+            "spread_t_stat": "Spread T-Stat",
+            "t_stat_vs_zero": "T-Stat vs Zero",
+            "stderr": "Std Error",
+            "std": "Std Dev",
+            "interpretation": "Interpretation",
         }
     )
-    for column in ["Avg Forward Return", "Median Forward Return", "Win Rate"]:
+    for column in ["Avg Forward Return", "Median Forward Return", "Win Rate", "Win Rate Spread", "Mean Spread", "Median Spread", "Std Error", "Std Dev"]:
         if column in out:
             out[column] = out[column].map(pct)
     return out
@@ -655,6 +663,23 @@ def render_daily_setups() -> None:
                 "This checks whether higher-quality Setup B scores had better forward returns than lower-quality Setup B scores."
             )
             st.dataframe(format_bucket_summary(setup_b_buckets), width="stretch", hide_index=True)
+
+    setup_b_diag, setup_b_diag_path = load_latest(DATA_DIR / "backtests", "setup_b_bucket_diagnostics_*.parquet")
+    setup_b_spreads, setup_b_spreads_path = load_latest(DATA_DIR / "backtests", "setup_b_top_bottom_spreads_*.parquet")
+    if setup_b_diag is not None or setup_b_spreads is not None:
+        with st.expander("Setup B Bucket Diagnostics", expanded=True):
+            st.markdown(
+                """
+                Diagnostics help judge whether score improvements are meaningful. Look for rising mean/median returns,
+                rising win rates, positive top-bottom spreads, and spread t-stats around 2 or higher.
+                """
+            )
+            if setup_b_spreads is not None:
+                st.caption(f"Top-bottom spreads: {setup_b_spreads_path}")
+                st.dataframe(format_bucket_summary(setup_b_spreads), width="stretch", hide_index=True)
+            if setup_b_diag is not None:
+                st.caption(f"Bucket diagnostics: {setup_b_diag_path}")
+                st.dataframe(format_bucket_summary(setup_b_diag), width="stretch", hide_index=True)
 
     with st.expander("How daily setup scores work"):
         st.markdown(
