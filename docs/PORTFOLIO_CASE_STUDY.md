@@ -155,7 +155,7 @@ Recommended employer-facing demo:
 
 - short screen recording or GIF
 - screenshots on portfolio page
-- optional hosted Streamlit app using small bundled sample artifacts
+- optional hosted Streamlit app using the bundled `demo_data/` artifacts
 - no API keys
 - no private `.env`
 - no full local `data/` folder
@@ -203,9 +203,9 @@ Say instead:
 ## Next Improvements
 Highest-value next steps:
 
-1. Add a small sanitized sample dataset for public demo mode.
-2. Add screenshots or a short video walkthrough.
+1. Add screenshots or a short video walkthrough.
+2. Verify hosted read-only demo behavior using `demo_data/`.
 3. Add sector metadata and sector-neutral diagnostics.
 4. Add beta/rebound exposure checks for high-ATR candidates.
 5. Build v2 diagnostic comparison artifacts for RSI/MACD/ADX/ROC/slope features.
-6. Improve README screenshots and architecture diagrams after demo data is stable.
+6. Improve README screenshots after demo visuals are stable.

@@ -1,7 +1,7 @@
 # Demo Plan
 
 Date: 2026-05-14
-Status: Recommended portfolio approach
+Status: Initial read-only demo dataset implemented
 
 ## Should This Project Have A Demo?
 Yes, but it should be a controlled research demo, not access to the private working dashboard.
@@ -41,11 +41,11 @@ Cons:
 - not interactive
 
 ### Option B: Hosted Read-Only Streamlit Demo
-Recommended later after sample data is prepared.
+Recommended after verifying screenshots and local demo mode.
 
 Requirements:
 
-- use small sanitized sample artifacts
+- use small sanitized sample artifacts from `demo_data/`
 - commit only demo-safe data
 - no `.env`
 - no API calls in the hosted app
@@ -118,11 +118,13 @@ Add links:
 - optional hosted demo when sample data exists
 
 ## Demo Data Requirement
-Before hosting a public dashboard, create a small demo dataset that includes:
+The repo now includes a small demo dataset at `demo_data/`.
 
-- `data/features/scored_history.parquet`
-- one `signal_snapshot_*.parquet`
-- one `daily_setup_candidates_*.parquet`
+It includes:
+
+- `demo_data/features/scored_history.parquet`
+- one `demo_data/signals/signal_snapshot_*.parquet`
+- one `demo_data/signals/daily_setup_candidates_*.parquet`
 - representative `setup_b_*` backtest artifacts
 
 The sample should:
@@ -133,9 +135,24 @@ The sample should:
 - clearly state that it is sample research data
 - avoid claiming point-in-time institutional correctness
 
+Regenerate it from local research artifacts with:
+
+```bash
+python3 scripts/build_demo_dataset.py
+```
+
+Run the dashboard against it with:
+
+```bash
+FINDINGALPHA_DATA_DIR=demo_data streamlit run src/trading_screener/dashboard/app.py
+```
+
+The dashboard also falls back to `demo_data/` automatically when `data/` has no local artifacts. For hosted demos, setting `FINDINGALPHA_DATA_DIR=demo_data` is still clearer.
+
 ## Current Recommendation
 For the portfolio update now:
 
-1. Use screenshots and a short video first.
-2. Link to the GitHub repo and portfolio case study.
-3. Add a hosted read-only demo only after creating sanitized sample artifacts.
+1. Verify the local read-only demo with `FINDINGALPHA_DATA_DIR=demo_data`.
+2. Capture screenshots and a short video.
+3. Link to the GitHub repo and portfolio case study.
+4. Host the read-only Streamlit demo only after confirming the demo dataset renders well.

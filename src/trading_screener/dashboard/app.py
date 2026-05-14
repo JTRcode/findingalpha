@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -13,7 +14,19 @@ from trading_screener.signals.daily_playbook import setup_b_condition_audit, set
 from trading_screener.signals.scoring import FEATURE_WEIGHTS
 
 
-DATA_DIR = Path("data")
+def default_dashboard_data_dir() -> Path:
+    configured = os.getenv("FINDINGALPHA_DATA_DIR")
+    if configured:
+        return Path(configured)
+    local_data = Path("data")
+    demo_data = Path("demo_data")
+    has_local_artifacts = any((local_data / child).glob("*.parquet") for child in ["signals", "backtests", "features"])
+    if not has_local_artifacts and demo_data.exists():
+        return demo_data
+    return local_data
+
+
+DATA_DIR = default_dashboard_data_dir()
 EARNINGS_PATHS = [
     DATA_DIR / "events" / "earnings.parquet",
     DATA_DIR / "events" / "earnings.csv",
@@ -1554,6 +1567,11 @@ st.set_page_config(page_title="Finding Alpha", layout="wide")
 render_sidebar()
 st.title("Finding Alpha Research Dashboard")
 st.caption("Research-only screener and alpha-testing dashboard. No broker connection, no order placement.")
+if DATA_DIR != Path("data"):
+    st.info(
+        f"Using data directory `{DATA_DIR}`. This is suitable for a read-only demo dataset when "
+        "`FINDINGALPHA_DATA_DIR` points at sanitized artifacts."
+    )
 
 overview_tab, daily_tab, daily_setup_tab, alpha_tab, intraday_tab = st.tabs(
     ["Overview", "Daily Screener", "Setup B Research", "Alpha Tests", "Intraday Prototypes"]

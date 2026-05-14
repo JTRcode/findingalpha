@@ -161,6 +161,20 @@ Dashboard tabs:
 
 The dashboard reads saved artifacts from `data/`. It does not stream live data and cannot place orders.
 
+## Read-Only Demo Mode
+
+This repo includes a small sanitized demo dataset under `demo_data/` for portfolio review. It uses public ticker symbols and prebuilt research artifacts, so the dashboard can be opened without API keys or a fresh data pull.
+
+Run:
+
+```bash
+FINDINGALPHA_DATA_DIR=demo_data streamlit run src/trading_screener/dashboard/app.py
+```
+
+If `data/` has no local research artifacts and `demo_data/` exists, the dashboard will also fall back to `demo_data/` automatically. The explicit environment variable is still recommended for demos.
+
+Demo mode is intended for screenshots, screen recordings, and hosted read-only review. It is not point-in-time institutional data and should not be used to make trading claims.
+
 ## Intraday Research Providers
 
 Alpaca and Massive/Polygon providers are market-data-only integrations.
@@ -201,6 +215,8 @@ Key artifact families:
 - `setup_b_date_declustered_*`
 - `setup_b_outlier_diagnostics_*`
 - `setup_b_time_consistency_*`
+
+The committed `demo_data/` directory is separate from private local research output. It is deliberately small and sanitized for read-only demonstration.
 
 ## Tests
 

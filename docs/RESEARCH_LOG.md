@@ -9,6 +9,13 @@ Date format: YYYY-MM-DD
 - Decision: Rewrite the README for employer-facing review, add `docs/PORTFOLIO_CASE_STUDY.md`, and add `docs/DEMO_PLAN.md`. Recommend screenshots/video first and a hosted read-only demo only after creating a small demo-safe dataset.
 - Open questions: Whether to create a small committed demo dataset, where to host a read-only dashboard, and which screenshots best communicate the Setup B workflow.
 
+## 2026-05-14: Read-Only Demo Dataset
+- Question: How can the dashboard be shared safely for portfolio review without exposing local data, secrets, or live provider access?
+- Sources checked: Streamlit dashboard data-loading path, `.gitignore`, current local research artifacts, and demo plan.
+- Findings: The dashboard was hardcoded to read `data/`, which is private local research output and ignored by git. A hosted demo needs a separate small data directory with sanitized artifacts. The app can safely support this through a `FINDINGALPHA_DATA_DIR` environment variable.
+- Decision: Add `FINDINGALPHA_DATA_DIR` support to the dashboard, add `scripts/build_demo_dataset.py`, and commit a small `demo_data/` dataset with public tickers and prebuilt read-only artifacts. Demo mode should be launched with `FINDINGALPHA_DATA_DIR=demo_data streamlit run src/trading_screener/dashboard/app.py`.
+- Open questions: Whether to host with Streamlit Community Cloud, another static/video-first portfolio flow, or a private reviewer-only deployment.
+
 ## 2026-05-14: Setup B v1 Filter Diagnostics Review
 - Question: Why do the broad Volume and Structure gates show high pass rates from the prior step but low pass rates of total?
 - Sources checked: `data/backtests/setup_b_filter_diagnostics_20260514T071215Z.parquet`, `src/trading_screener/research/setup_eval.py`, `src/trading_screener/signals/daily_playbook.py`, `docs/SETUP_B_V1_RESEARCH_REPORT.md`.
