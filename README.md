@@ -1,149 +1,270 @@
 # Finding Alpha
 
-Personal stock screener and alpha research dashboard.
+Research-first equity screener and alpha-validation dashboard.
 
-Phase 1 is research-only analytics: fetch historical daily data, calculate interpretable features, rank stocks, save timestamped signal snapshots, and evaluate whether scores predict forward returns. It does not place orders or implement live trading.
+Finding Alpha is a Python research system for turning discretionary swing-trading ideas into testable, versioned signal hypotheses. It ingests historical market data, calculates interpretable features, saves timestamped signal snapshots, and evaluates whether ranked candidates show predictive value across future return horizons.
 
-## MVP Stack Decision
-- Language: Python
-- Initial market data: `yfinance` for frictionless personal research, behind a provider interface
-- Storage: partitioned Parquet files, queryable with DuckDB
-- Features: daily adjusted OHLCV technical/liquidity features
-- Alpha testing: forward-return bucket analysis plus simple top-ranked basket research
-- Dashboard: Streamlit
-- Broker path: Interactive Brokers Canada later, placeholders only
+The project is intentionally **not** a trading bot. Phase 1 is research-only: no broker execution, no live orders, no options automation, no crypto, no reinforcement learning, and no LLM-based trade decisions.
 
-## Safety
-This project is for personal research. It is not financial advice. No live trading, automated trading, order submission, broker credentials, or execution logic belongs in phase 1.
+## Why This Project Exists
 
-## Planned Workflow
-1. Research and document assumptions.
-2. Create ADRs for major decisions.
-3. Implement the smallest useful MVP.
-4. Add tests for calculations and alpha evaluation.
-5. Save every screener run as a timestamped signal snapshot.
-6. Update docs when implementation changes.
+The goal is not simply to rank interesting stocks. The goal is to answer a harder question:
 
-## Local Use
-After installing dependencies in an environment with `pip`:
-
-```bash
-python3 -m pip install -e ".[dev]"
-findingalpha --provider yfinance --tickers AAPL MSFT NVDA SPY QQQ --start 2024-01-01
-streamlit run src/trading_screener/dashboard/app.py
-python3 -m pytest
+```text
+Did the signal available at the time predict future returns,
+or did it only look good after the fact?
 ```
 
-You can also use named universes instead of typing tickers manually:
+The system currently focuses on **Setup B: Trend Pullback Continuation**:
+
+```text
+Buy strong pullbacks. Avoid chop. Test whether higher-quality pullbacks lead to better forward returns.
+```
+
+Setup B v1 is frozen as a baseline. Future v2 work is being proposed through research documents rather than silently changing the rules.
+
+## What It Demonstrates
+
+This repo is designed to showcase professional software engineering and research-engineering habits:
+
+- modular data-provider interfaces
+- reproducible local data pipeline
+- timestamped signal snapshots
+- interpretable feature engineering
+- versioned setup definitions
+- forward-return and bucket analysis
+- SPY/QQQ-relative diagnostics
+- date-declustered, outlier, and yearly-consistency checks
+- Streamlit dashboard for research review
+- ADRs and design docs
+- explicit risk and compliance boundaries
+- test coverage for features, scoring, providers, and research utilities
+
+## Architecture
+
+```text
+Market data provider
+        |
+        v
+Raw / processed Parquet storage
+        |
+        v
+Feature generation
+        |
+        v
+Signal scoring and Setup B gates
+        |
+        v
+Signal snapshots + ranked outputs
+        |
+        v
+Forward-return research diagnostics
+        |
+        v
+Streamlit dashboard + research reports
+```
+
+Main source directories:
+
+```text
+src/trading_screener/
+  data/          provider interfaces, storage, validation
+  features/      technical and intraday feature generation
+  signals/       scoring, screeners, Setup B gates
+  research/      forward returns, bucket tests, slices, diagnostics
+  backtesting/   simple basket research helpers
+  dashboard/     Streamlit dashboard
+```
+
+## Current Research Workflow
+
+1. Run a research scan over a ticker universe.
+2. Save raw bars, processed bars, scored history, signal snapshots, and backtest artifacts.
+3. Review Setup B candidates and charts in the dashboard.
+4. Evaluate forward returns by bucket and slice.
+5. Compare returns against SPY/QQQ.
+6. Check date clustering, outlier dependence, and yearly consistency.
+7. Record findings before changing signal logic.
+
+## Setup B Research Status
+
+Current baseline:
+
+```text
+setup_b_v1_broad_scanner
+```
+
+Setup B v1 has:
+
+- broad scanner gate
+- strict audit gate
+- trend, pullback, volume, structure, and confirmation diagnostics
+- continuous quality score
+- chart audit view
+- bucket diagnostics
+- slice and interaction diagnostics
+- benchmark-relative diagnostics
+- outlier and yearly-consistency diagnostics
+
+Current v2 proposal explores:
+
+- RSI reset
+- MACD histogram improvement
+- ADX trend strength
+- ROC acceleration
+- slope confirmation
+- high ATR as a context flag, not automatically a positive filter
+
+See:
+
+- [Setup B v1 research report](docs/SETUP_B_V1_RESEARCH_REPORT.md)
+- [Setup B v2 proposal](docs/SETUP_B_V2_PROPOSAL.md)
+- [Setup B v2 transition plan](docs/SETUP_B_V2_TRANSITION_PLAN.md)
+
+## Installation
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -e ".[dev]"
+```
+
+## Example Daily Research Run
+
+Small universe:
 
 ```bash
 findingalpha --provider yfinance --universe liquid_large_caps --start 2024-01-01
-findingalpha --provider yfinance --universe sp500_current --start 2024-01-01
-findingalpha --provider massive --universe core_etfs --intraday-only --intraday --intraday-start 2026-05-01 --intraday-timeframe 1Min
 ```
 
-Universe files live in `config/universes/`. Add one ticker per line.
-
-Refresh the current S&P 500 universe with:
+Current S&P 500 universe:
 
 ```bash
-findingalpha-update-sp500
+findingalpha --provider yfinance --universe sp500_current --start 2011-01-01
 ```
 
-For Alpaca historical intraday bars, put your credentials in `.env` or export them in your shell:
+Important caveat: `sp500_current` is not point-in-time. Historical tests using today’s S&P 500 constituents have survivorship bias. This is acceptable for application development and rough signal research, but not for final institutional claims.
+
+## Launch Dashboard
 
 ```bash
-ALPACA_API_KEY_ID=your_key_id
-ALPACA_API_SECRET_KEY=your_secret_key
-ALPACA_DATA_FEED=iex
+streamlit run src/trading_screener/dashboard/app.py
 ```
 
-The provider also accepts Alpaca's common `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY` names. Make sure the key ID and secret are not reversed and come from the same Alpaca account.
+Dashboard tabs:
 
-Use Alpaca's Paper Trading API key, not an OAuth app/client ID. A UUID-looking value is usually the wrong credential type for this market-data request.
+- `Overview`: project flow and research-only scope
+- `Daily Screener`: latest ranked signal snapshot
+- `Setup B Research`: active playbook workflow, candidate chart review, gates, slices, diagnostics
+- `Alpha Tests`: generic composite-score tests
+- `Intraday Prototypes`: experimental 1-minute research layer
 
-For Massive/Polygon historical bars, add:
+The dashboard reads saved artifacts from `data/`. It does not stream live data and cannot place orders.
 
-```bash
-MASSIVE_API_KEY=your_api_key
-```
+## Intraday Research Providers
 
-`POLYGON_API_KEY` is also accepted.
+Alpaca and Massive/Polygon providers are market-data-only integrations.
 
-Then run a small 1-minute research pull:
+Alpaca example:
 
 ```bash
 findingalpha --provider alpaca --tickers SPY QQQ GLD TLT NVDA AAPL --start 2025-01-01 --intraday --intraday-start 2026-05-01 --intraday-timeframe 1Min --feed iex
 ```
 
-The Alpaca integration uses market-data endpoints only. It does not use Alpaca trading endpoints and cannot place orders.
-
-To use Massive/Polygon 1-minute aggregate bars instead:
+Massive/Polygon example:
 
 ```bash
 findingalpha --provider massive --tickers SPY QQQ GLD TLT NVDA AAPL --intraday-only --intraday --intraday-start 2026-05-01 --intraday-timeframe 1Min
 ```
 
-The provider aliases `massive`, `polygon`, and `polygonio` all use the same market-data-only integration.
+Secrets belong in `.env` and must not be committed. See [.env.example](.env.example).
 
-Massive/Polygon free REST access is rate-limited. The provider makes one aggregate-bars request per ticker for daily data and one per ticker for intraday data, then paces requests using `MASSIVE_RATE_LIMIT_SLEEP_SECONDS`, default `13`. Use `--intraday-only` when you only want 1-minute setup candidates, reduce the ticker list, or raise `MASSIVE_RATE_LIMIT_SLEEP_SECONDS` in `.env` if you still see 429s.
+## Outputs
 
-## Universe Guidance
-Use different universe sizes for different jobs:
+Generated files are written under `data/` and ignored by git except `.gitkeep` placeholders:
 
-- Daily alpha tests: S&P 500-sized universes are reasonable and useful.
-- Intraday REST pulls: start with 10-50 liquid ETFs/large caps because one-minute data is much heavier and provider rate limits matter.
-- Full-market scans: later phase, likely using Massive/Polygon flat files or a database-backed workflow.
+```text
+data/raw/          raw provider outputs
+data/processed/    normalized bars
+data/features/     scored history
+data/signals/      timestamped signal snapshots and setup candidates
+data/backtests/    forward-return diagnostics and research artifacts
+```
 
-For now, the best default is `liquid_large_caps` for daily research and `core_etfs` for early intraday setup testing. Move toward the full S&P 500 once the setup definitions and provider choice are stable.
+Key artifact families:
 
-Outputs are written under `data/`:
-- raw bars: `data/raw/`
-- processed bars: `data/processed/`
-- scored feature history: `data/features/`
-- timestamped signal snapshots: `data/signals/`
-- forward-return bucket summaries, top/bottom spreads, benchmark comparisons, top-ranked basket results, and transaction-cost sensitivity: `data/backtests/`
-- intraday setup candidates: `data/signals/<provider>/intraday_setup_candidates_*.csv`
+- `signal_snapshot_*`
+- `daily_setup_candidates_*`
+- `setup_b_filter_diagnostics_*`
+- `setup_b_bucket_diagnostics_*`
+- `setup_b_benchmark_relative_monthly_*`
+- `setup_b_date_declustered_*`
+- `setup_b_outlier_diagnostics_*`
+- `setup_b_time_consistency_*`
 
-Daily raw/processed feature files currently act as latest-run working files. Timestamped signal and backtest outputs are preserved. Intraday raw bars, scored features, and candidates are provider-specific and timestamped so Alpaca and Massive/Polygon runs can be compared side by side.
+## Tests
 
-## Dashboard Guide
-The dashboard has four tabs:
+```bash
+python3 -m pytest
+```
 
-- Overview: project flow from data provider to forward-return testing.
-- Daily Screener: latest daily signal snapshot and an explanation of the composite score.
-- Daily Setups: multi-day rule-based candidates for Setup A, B, and C.
-- Alpha Tests: score buckets, benchmark comparison, and simple top-ranked basket results.
-- Intraday Setups: latest Setup A/B/C candidates with setup score breakdowns and forward returns.
+Current test coverage includes:
 
-A signal snapshot is a timestamped record of what the screener saw at run time. A bucket is a score group: with five buckets, bucket 1 is the lowest-scored group and bucket 5 is the highest-scored group for that date.
+- provider interfaces
+- daily and intraday feature generation
+- scoring
+- Setup B gates and diagnostics
+- forward-return calculation
+- dashboard-adjacent formatting helpers
+- universe loading
 
-The Daily Setups tab has a minimum setup score slider. Increase it to make candidates rarer and stricter; decrease it to inspect looser prototype matches.
+## Documentation Map
 
-The Daily Setups tab also includes a Setup B candlestick/volume chart. Select a candidate to inspect price action before and after the candidate date; the blue dashed line marks the signal date.
+Core docs:
 
-Setup B candidates are split into visible pass/fail gates: trend, pullback, volume dry-up, structure, and confirmation. Each gate also has a 0-1 quality score. Gates decide whether a row is eligible; quality scores rank the eligible candidates.
+- [Design authority](docs/DESIGN.md)
+- [Portfolio case study](docs/PORTFOLIO_CASE_STUDY.md)
+- [Demo plan](docs/DEMO_PLAN.md)
+- [Alpha research methodology](docs/ALPHA_RESEARCH.md)
+- [Backtesting notes](docs/BACKTESTING_NOTES.md)
+- [Risk and compliance](docs/RISK_AND_COMPLIANCE.md)
+- [Research log](docs/RESEARCH_LOG.md)
+- [Decision index](docs/DECISIONS.md)
 
-Setup B diagnostics are written to `data/backtests/setup_b_bucket_diagnostics_*.csv` and `data/backtests/setup_b_top_bottom_spreads_*.csv`. These include count, mean, median, win rate, standard error, t-stat, and top-bottom spread interpretation.
+Research docs:
 
-Setup B slice results are written to `data/backtests/setup_b_slices_*.csv`. Slices show whether the setup behaves differently by market regime, pullback depth/duration, volume dry-up, trend quality, confirmation quality, and ATR.
+- [Setup B v1 research report](docs/SETUP_B_V1_RESEARCH_REPORT.md)
+- [Setup B v2 proposal](docs/SETUP_B_V2_PROPOSAL.md)
+- [Setup B v2 transition plan](docs/SETUP_B_V2_TRANSITION_PLAN.md)
+- [Survivorship bias](docs/SURVIVORSHIP_BIAS.md)
+- [Universes](docs/UNIVERSES.md)
 
-Market regime slices need benchmark context. Daily runs automatically fetch SPY/QQQ alongside the selected universe for regime analysis, but candidates remain restricted to the selected universe. If old slice files show only `benchmark_missing` or `unknown`, rerun the daily pipeline.
+Planning docs:
 
-Setup B interaction slices are written to `data/backtests/setup_b_interaction_slices_*.csv`. Interaction slices test two conditions at once, such as market regime plus confirmation quality. The dashboard also lets you filter the Setup B candidate view by ATR slice, confirmation slice, and market regime.
-
-## Implementation Status
-The MVP code includes a provider interface, yfinance daily provider, Alpaca historical market-data provider, Massive/Polygon historical market-data provider, Parquet storage helpers, feature generation, composite scoring, timestamped signal snapshots, forward-return bucket evaluation, intraday setup candidates, benchmark comparison, top/bottom spread summaries, a simple basket research helper, transaction-cost sensitivity, CLI, Streamlit dashboard, and tests. This remains phase 1 research software only.
-
-## Documentation
 - [Research plan](docs/RESEARCH_PLAN.md)
 - [API comparison](docs/API_COMPARISON.md)
 - [Data requirements](docs/DATA_REQUIREMENTS.md)
 - [Architecture options](docs/ARCHITECTURE_OPTIONS.md)
 - [Project plan](docs/PROJECT_PLAN.md)
-- [Alpha research](docs/ALPHA_RESEARCH.md)
-- [Risk and compliance](docs/RISK_AND_COMPLIANCE.md)
-- [Backtesting notes](docs/BACKTESTING_NOTES.md)
-- [Survivorship bias](docs/SURVIVORSHIP_BIAS.md)
-- [Universes](docs/UNIVERSES.md)
-- [Decision index](docs/DECISIONS.md)
+
+## Portfolio Framing
+
+Safe claim:
+
+> This project demonstrates a research-first pipeline for testing interpretable equity-screening signals with reproducible artifacts, benchmark-relative validation, and documented decision controls.
+
+Do not claim:
+
+> This system has found a proven trading edge.
+
+Known limitations:
+
+- current S&P 500 universe is not point-in-time
+- yfinance is a practical prototype provider, not institutional-grade data
+- no full transaction-cost-aware execution simulation yet
+- no sector-neutral or beta-neutral production research layer yet
+- no live trading or broker execution by design
+
+## Safety Boundary
+
+This software is for personal research and engineering demonstration only. It is not financial advice and does not submit orders.

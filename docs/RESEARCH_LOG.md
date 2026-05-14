@@ -2,6 +2,13 @@
 
 Date format: YYYY-MM-DD
 
+## 2026-05-14: Portfolio Presentation Cleanup
+- Question: How should the project be presented for software engineering and investment-research-engineering portfolio review?
+- Sources checked: `README.md`, `docs/DESIGN.md`, `docs/SETUP_B_V1_RESEARCH_REPORT.md`, `docs/SETUP_B_V2_PROPOSAL.md`, dashboard scope, and current generated artifact policy.
+- Findings: The project is strongest when framed as a research-first signal-validation platform, not a trading bot. A public demo is useful, but exposing the local dashboard directly is not appropriate because local data, `.env`, and provider credentials must stay private. The safest near-term portfolio artifact is a polished README, case study, screenshots, and a short video. A hosted Streamlit demo should use only sanitized sample artifacts and should not make API calls or include secrets.
+- Decision: Rewrite the README for employer-facing review, add `docs/PORTFOLIO_CASE_STUDY.md`, and add `docs/DEMO_PLAN.md`. Recommend screenshots/video first and a hosted read-only demo only after creating a small demo-safe dataset.
+- Open questions: Whether to create a small committed demo dataset, where to host a read-only dashboard, and which screenshots best communicate the Setup B workflow.
+
 ## 2026-05-14: Setup B v1 Filter Diagnostics Review
 - Question: Why do the broad Volume and Structure gates show high pass rates from the prior step but low pass rates of total?
 - Sources checked: `data/backtests/setup_b_filter_diagnostics_20260514T071215Z.parquet`, `src/trading_screener/research/setup_eval.py`, `src/trading_screener/signals/daily_playbook.py`, `docs/SETUP_B_V1_RESEARCH_REPORT.md`.
