@@ -173,4 +173,4 @@ setup_b_v2_explanation
 No v2 implementation yet.
 
 Next action:
-Write a v2 proposal that explicitly decides whether the high-ATR branch is still Setup B continuation or should become a separate volatility-rebound label.
+Use `docs/SETUP_B_V2_PROPOSAL.md` as the working proposal. Build diagnostic comparisons for RSI reset, MACD histogram improvement, ADX trend strength, ROC acceleration, slope confirmation, and high ATR context before choosing a concrete v2 definition.

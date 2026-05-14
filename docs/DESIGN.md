@@ -156,6 +156,7 @@ Status:
 - frozen baseline for research comparison
 - documented in `docs/SETUP_B_V1_RESEARCH_REPORT.md`
 - v2 transition process documented in `docs/SETUP_B_V2_TRANSITION_PLAN.md`
+- draft v2 research proposal documented in `docs/SETUP_B_V2_PROPOSAL.md`
 
 Structure:
 - broad scanner gate: creates a research sample

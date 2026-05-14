@@ -37,6 +37,13 @@ Date format: YYYY-MM-DD
 - Decision: Keep Setup B v1 frozen. Use the new hardening artifacts as required inputs before writing `SETUP_B_V2_PROPOSAL.md`. The leading v2 path is high-ATR Setup B, with a separate decision needed on whether this is a continuation variant, rebound variant, or separate label.
 - Open questions: Is high ATR still strong after sector-neutral testing? Is the `too_deep` pullback branch psychologically and operationally compatible with the core trend-continuation playbook? What transaction-cost/slippage penalty is realistic for high-ATR candidates?
 
+## 2026-05-14: Setup B v2 Proposal
+- Question: How should v2 exploration be framed before coding new Setup B rules?
+- Sources checked: `docs/SETUP_B_V1_RESEARCH_REPORT.md`, `docs/SETUP_B_V2_TRANSITION_PLAN.md`, current indicator diagnostics, and current hardening findings.
+- Findings: The user wants v2 research to explore RSI reset, MACD histogram improvement, ADX trend strength, ROC acceleration, slope confirmation, and high ATR as a context flag. These should be tested separately first, then in combinations, before becoming gates or score components. High ATR remains important but should not automatically become a mandatory Setup B filter.
+- Decision: Add `docs/SETUP_B_V2_PROPOSAL.md`. The proposal recommends first building diagnostic comparisons and likely starting with a momentum-reset score while keeping high ATR as a separate context flag.
+- Open questions: Whether v2 should become one enhanced score, a named momentum-reset variant, a high-ATR watch variant, or separate labels for continuation and high-volatility rebound.
+
 ## 2026-05-10: Market Data Required for MVP
 - Question: Which market data is necessary first?
 - Sources checked: yfinance PyPI, Alpha Vantage docs, Polygon docs, Alpaca docs, SEC EDGAR docs.
