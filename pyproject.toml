@@ -26,6 +26,9 @@ dev = ["pytest>=8.0"]
 findingalpha = "trading_screener.cli:main"
 findingalpha-update-sp500 = "trading_screener.universe.update_sp500:main"
 
+[tool.poetry]
+packages = [{ include = "trading_screener", from = "src" }]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

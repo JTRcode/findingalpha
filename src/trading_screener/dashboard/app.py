@@ -3,11 +3,16 @@ from __future__ import annotations
 from datetime import date, timedelta
 import os
 from pathlib import Path
+import sys
 
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+
+SRC_DIR = Path(__file__).resolve().parents[2]
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from trading_screener.research.setup_eval import add_setup_b_slice_columns_for_dashboard
 from trading_screener.signals.daily_playbook import setup_b_condition_audit, setup_b_gate_audit
