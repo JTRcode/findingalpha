@@ -8,10 +8,15 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+from trading_screener.research.setup_eval import add_setup_b_slice_columns_for_dashboard
 from trading_screener.signals.scoring import FEATURE_WEIGHTS
 
 
 DATA_DIR = Path("data")
+EARNINGS_PATHS = [
+    DATA_DIR / "events" / "earnings.parquet",
+    DATA_DIR / "events" / "earnings.csv",
+]
 SETUP_LABELS = {
     "setup_b_trend_pullback": "Setup B - Trend Pullback Continuation",
     "setup_a_exhaustion": "Setup A - Exhaustion Pullback",
@@ -34,7 +39,12 @@ def load_latest(directory: Path, pattern: str, recursive: bool = False) -> tuple
     path = latest_recursive_file(directory, pattern) if recursive else latest_file(directory, pattern)
     if path is None:
         return None, None
-    return pd.read_parquet(path), path
+    return read_parquet_cached(str(path), path.stat().st_mtime_ns), path
+
+
+@st.cache_data(show_spinner=False)
+def read_parquet_cached(path: str, mtime_ns: int) -> pd.DataFrame:
+    return pd.read_parquet(path)
 
 
 def pct(value: object) -> str:
@@ -101,9 +111,44 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
             "stderr": "Std Error",
             "std": "Std Dev",
             "interpretation": "Interpretation",
+            "slice": "Slice",
+            "value": "Value",
+            "variant": "Variant",
+            "relative_count": "Benchmark-Relative Observations",
+            "relative_mean": "Avg Return vs Benchmark",
+            "relative_median": "Median Return vs Benchmark",
+            "relative_win_rate": "Win Rate vs Benchmark",
+            "benchmark": "Benchmark",
+            "absolute_mean": "Avg Forward Return",
+            "relative_count": "Benchmark-Relative Observations",
+            "date_count": "Dates",
+            "candidate_count": "Candidates",
+            "avg_candidates_per_date": "Avg Candidates/Date",
+            "date_declustered_absolute_mean": "Date-Declustered Avg Return",
+            "date_declustered_relative_mean": "Date-Declustered Avg vs Benchmark",
+            "date_declustered_relative_median": "Date-Declustered Median vs Benchmark",
+            "date_declustered_relative_win_rate": "Date-Declustered Win Rate vs Benchmark",
+            "avg_strict_rate": "Avg Strict Match Rate",
         }
     )
-    for column in ["Avg Forward Return", "Median Forward Return", "Win Rate", "Win Rate Spread", "Mean Spread", "Median Spread", "Std Error", "Std Dev"]:
+    for column in [
+        "Avg Forward Return",
+        "Median Forward Return",
+        "Win Rate",
+        "Win Rate Spread",
+        "Mean Spread",
+        "Median Spread",
+        "Std Error",
+        "Std Dev",
+        "Avg Return vs Benchmark",
+        "Median Return vs Benchmark",
+        "Win Rate vs Benchmark",
+        "Date-Declustered Avg Return",
+        "Date-Declustered Avg vs Benchmark",
+        "Date-Declustered Median vs Benchmark",
+        "Date-Declustered Win Rate vs Benchmark",
+        "Avg Strict Match Rate",
+    ]:
         if column in out:
             out[column] = out[column].map(pct)
     return out
@@ -163,6 +208,10 @@ def format_daily_setups(df: pd.DataFrame) -> pd.DataFrame:
         "pullback_from_10d_high": "Pullback From 10D High",
         "relative_volume": "Rel Volume",
         "daily_setup_explanation": "Why It Matched",
+        "setup_b_variant": "Setup B Variant",
+        "setup_b_variant_reason": "Variant Reason",
+        "setup_b_scanner_gate": "B Broad Scanner",
+        "setup_b_strict_gate": "B Strict Match",
         "setup_b_trend_gate": "B Trend Gate",
         "setup_b_pullback_gate": "B Pullback Gate",
         "setup_b_volume_dryup_gate": "B Volume Gate",
@@ -190,6 +239,8 @@ def format_daily_setups(df: pd.DataFrame) -> pd.DataFrame:
         "B Volume Gate",
         "B Structure Gate",
         "B Confirmation Gate",
+        "B Broad Scanner",
+        "B Strict Match",
     ]:
         if column in out:
             out[column] = out[column].map(lambda value: "PASS" if bool(value) else "FAIL")
@@ -198,6 +249,8 @@ def format_daily_setups(df: pd.DataFrame) -> pd.DataFrame:
 
 def format_setup_b_gate_panel(row: pd.Series) -> pd.DataFrame:
     gates = [
+        ("Broad Scanner", "Looser eligibility for trend-pullback candidates; broad enough for research samples", row.get("setup_b_scanner_gate"), row.get("best_daily_setup_score")),
+        ("Strict Match", "Original stricter all-gates version; useful as a high-quality label, not required for broad research", row.get("setup_b_strict_gate"), row.get("best_daily_setup_score")),
         ("Trend", "Strong 60d trend, above 50/200 SMA, 20 SMA above 50 SMA", row.get("setup_b_trend_gate"), row.get("setup_b_trend_quality")),
         ("Pullback", "2-6 down days in 7d, 1.5-7% below 10d high, no large red breakdown candles", row.get("setup_b_pullback_gate"), row.get("setup_b_pullback_quality")),
         ("Volume Dry-Up", "Current and recent pullback volume below prior activity", row.get("setup_b_volume_dryup_gate"), row.get("setup_b_volume_quality")),
@@ -218,9 +271,101 @@ def load_scored_history() -> pd.DataFrame | None:
     path = DATA_DIR / "features" / "scored_history.parquet"
     if not path.exists():
         return None
-    history = pd.read_parquet(path)
+    history = read_parquet_cached(str(path), path.stat().st_mtime_ns)
     history["date"] = pd.to_datetime(history["date"]).dt.date
     return history
+
+
+@st.cache_data(show_spinner=False)
+def load_setup_b_context(path: str, mtime_ns: int) -> pd.DataFrame:
+    history = pd.read_parquet(path)
+    history["date"] = pd.to_datetime(history["date"]).dt.date
+    return add_setup_b_slice_columns_for_dashboard(history)
+
+
+def load_earnings_events() -> pd.DataFrame:
+    for path in EARNINGS_PATHS:
+        if path.exists():
+            raw = read_parquet_cached(str(path), path.stat().st_mtime_ns) if path.suffix == ".parquet" else read_csv_cached(str(path), path.stat().st_mtime_ns)
+            return normalize_earnings_events(raw)
+    return pd.DataFrame()
+
+
+@st.cache_data(show_spinner=False)
+def read_csv_cached(path: str, mtime_ns: int) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+
+def normalize_earnings_events(raw: pd.DataFrame) -> pd.DataFrame:
+    if raw.empty:
+        return raw
+    out = raw.copy()
+    out.columns = [str(column).strip().lower() for column in out.columns]
+    rename = {
+        "symbol": "ticker",
+        "report_date": "date",
+        "earnings_date": "date",
+        "epsestimate": "eps_estimate",
+        "eps_est": "eps_estimate",
+        "epsactual": "eps_actual",
+        "eps": "eps_actual",
+        "when": "time",
+        "session": "time",
+    }
+    out = out.rename(columns={column: rename[column] for column in rename if column in out.columns})
+    if "ticker" not in out or "date" not in out:
+        return pd.DataFrame()
+    out["ticker"] = out["ticker"].astype(str).str.upper()
+    out["date"] = pd.to_datetime(out["date"], errors="coerce").dt.date
+    out = out.dropna(subset=["ticker", "date"])
+    if "time" not in out:
+        out["time"] = "unknown"
+    out["time"] = out["time"].fillna("unknown").astype(str).str.lower()
+    return out
+
+
+def earnings_events_for_chart(earnings: pd.DataFrame, chart_data: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    if earnings.empty or chart_data.empty:
+        return pd.DataFrame()
+    ticker_events = earnings[earnings["ticker"] == ticker.upper()].copy()
+    if ticker_events.empty:
+        return ticker_events
+    min_date = chart_data["date"].min()
+    max_date = chart_data["date"].max()
+    ticker_events = ticker_events[(ticker_events["date"] >= min_date - timedelta(days=3)) & (ticker_events["date"] <= max_date)]
+    if ticker_events.empty:
+        return ticker_events
+
+    sessions = chart_data[["date", "session_index", "high"]].sort_values("date").reset_index(drop=True)
+    mapped_rows = []
+    for _, event in ticker_events.iterrows():
+        effective_date = event["date"] + timedelta(days=1) if is_after_close_earnings(event.get("time", "")) else event["date"]
+        session = sessions[sessions["date"] >= effective_date].head(1)
+        if session.empty:
+            continue
+        row = event.to_dict()
+        row["effective_date"] = effective_date
+        row["session_index"] = int(session["session_index"].iloc[0])
+        row["marker_y"] = float(session["high"].iloc[0])
+        mapped_rows.append(row)
+    return pd.DataFrame(mapped_rows)
+
+
+def is_after_close_earnings(value: object) -> bool:
+    text = str(value).lower()
+    return any(token in text for token in ["after", "post", "pm", "amc", "close"])
+
+
+def earnings_hover_text(events: pd.DataFrame) -> list[str]:
+    labels = []
+    for _, event in events.iterrows():
+        parts = [f"Earnings: {event.get('date')}", f"Time: {event.get('time', 'unknown')}"]
+        if pd.notna(event.get("eps_actual")):
+            parts.append(f"EPS actual: {event.get('eps_actual')}")
+        if pd.notna(event.get("eps_estimate")):
+            parts.append(f"EPS estimate: {event.get('eps_estimate')}")
+        labels.append("<br>".join(parts))
+    return labels
 
 
 def render_candlestick_with_volume(history: pd.DataFrame, ticker: str, signal_date: date, window_days: int) -> None:
@@ -239,6 +384,7 @@ def render_candlestick_with_volume(history: pd.DataFrame, ticker: str, signal_da
         lambda row: "#167A3A" if row["close"] >= row["open"] else "#B42318",
         axis=1,
     )
+    earnings = earnings_events_for_chart(load_earnings_events(), chart_data, ticker)
 
     visible_sessions = len(chart_data)
     chart_width = max(900, min(1800, visible_sessions * 18))
@@ -298,6 +444,35 @@ def render_candlestick_with_volume(history: pd.DataFrame, ticker: str, signal_da
             row="all",
             col=1,
         )
+    if not earnings.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=earnings["session_index"],
+                y=earnings["marker_y"] * 1.015,
+                mode="markers",
+                marker={
+                    "symbol": "triangle-down",
+                    "size": 12,
+                    "color": "#F59E0B",
+                    "line": {"color": "#FDE68A", "width": 1},
+                },
+                name="Earnings",
+                text=earnings_hover_text(earnings),
+                hovertemplate="%{text}<extra></extra>",
+            ),
+            row=1,
+            col=1,
+        )
+        for event_index in earnings["session_index"].dropna().unique():
+            fig.add_vline(
+                x=int(event_index),
+                line_color="#F59E0B",
+                line_dash="dot",
+                line_width=1,
+                opacity=0.8,
+                row="all",
+                col=1,
+            )
 
     tick_step = max(1, len(chart_data) // 8)
     tick_values = chart_data["session_index"][::tick_step]
@@ -327,7 +502,27 @@ def render_candlestick_with_volume(history: pd.DataFrame, ticker: str, signal_da
         dragmode="pan",
         hovermode="x unified",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
+    if earnings.empty:
+        st.caption("No earnings events found for this chart window. Add `data/events/earnings.csv` to show markers.")
+    else:
+        st.dataframe(format_earnings_events(earnings), width="stretch", hide_index=True)
+
+
+def format_earnings_events(events: pd.DataFrame) -> pd.DataFrame:
+    columns = ["date", "effective_date", "time", "eps_actual", "eps_estimate", "revenue_actual", "revenue_estimate"]
+    available = [column for column in columns if column in events.columns]
+    return events[available].rename(
+        columns={
+            "date": "Reported Date",
+            "effective_date": "Chart Marker Date",
+            "time": "Timing",
+            "eps_actual": "EPS Actual",
+            "eps_estimate": "EPS Estimate",
+            "revenue_actual": "Revenue Actual",
+            "revenue_estimate": "Revenue Estimate",
+        }
+    )
 
 
 def normalize_date_range(value: object, fallback_start: date, fallback_end: date) -> tuple[date, date]:
@@ -560,7 +755,7 @@ def render_daily_setups() -> None:
         "Minimum setup score",
         min_value=0.0,
         max_value=1.0,
-        value=0.75,
+        value=0.60,
         step=0.05,
         help="Higher values make the setup scanner more selective.",
     )
@@ -607,6 +802,53 @@ def render_daily_setups() -> None:
     if setup_b.empty:
         st.info("No Setup B candidates after the current filters. Lower the threshold or widen the date range.")
     else:
+        scored_history_path = DATA_DIR / "features" / "scored_history.parquet"
+        if scored_history_path.exists():
+            slice_columns = [
+                "ticker",
+                "date",
+                "market_regime",
+                "pullback_depth_slice",
+                "pullback_duration_slice",
+                "volume_dryup_slice",
+                "trend_strength_slice",
+                "confirmation_quality_slice",
+                "atr_slice",
+                "setup_b_variant",
+                "setup_b_variant_reason",
+            ]
+            slice_frame = load_setup_b_context(str(scored_history_path), scored_history_path.stat().st_mtime_ns)
+            available_slice_columns = [column for column in slice_columns if column in slice_frame.columns]
+            setup_b = setup_b.merge(
+                slice_frame[available_slice_columns],
+                on=["ticker", "date"],
+                how="left",
+                suffixes=("", "_slice_context"),
+            )
+            filter_columns = st.columns(4)
+            atr_options = sorted(setup_b["atr_slice"].dropna().astype(str).unique()) if "atr_slice" in setup_b else []
+            confirmation_options = (
+                sorted(setup_b["confirmation_quality_slice"].dropna().astype(str).unique())
+                if "confirmation_quality_slice" in setup_b
+                else []
+            )
+            regime_options = sorted(setup_b["market_regime"].dropna().astype(str).unique()) if "market_regime" in setup_b else []
+            variant_options = sorted(setup_b["setup_b_variant"].dropna().astype(str).unique()) if "setup_b_variant" in setup_b else []
+            selected_atr = filter_columns[0].multiselect("ATR slice", atr_options, key="setup_b_atr_filter")
+            selected_confirmation = filter_columns[1].multiselect(
+                "Confirmation slice", confirmation_options, key="setup_b_confirmation_filter"
+            )
+            selected_regime = filter_columns[2].multiselect("Market regime", regime_options, key="setup_b_regime_filter")
+            selected_variant = filter_columns[3].multiselect("Setup B variant", variant_options, key="setup_b_variant_filter")
+            if selected_atr:
+                setup_b = setup_b[setup_b["atr_slice"].astype(str).isin(selected_atr)]
+            if selected_confirmation:
+                setup_b = setup_b[setup_b["confirmation_quality_slice"].astype(str).isin(selected_confirmation)]
+            if selected_regime:
+                setup_b = setup_b[setup_b["market_regime"].astype(str).isin(selected_regime)]
+            if selected_variant:
+                setup_b = setup_b[setup_b["setup_b_variant"].astype(str).isin(selected_variant)]
+
         st.markdown("**Setup B Outcomes In Current Filter**")
         outcome_rows = []
         for column, label in [
@@ -629,31 +871,36 @@ def render_daily_setups() -> None:
         if outcome_rows:
             st.dataframe(pd.DataFrame(outcome_rows), width="stretch", hide_index=True)
 
-        chart_controls = st.columns([2, 1])
-        setup_b["candidate_label"] = setup_b.apply(
-            lambda row: (
-                f"{row['date']} | {row['ticker']} | score {row['best_daily_setup_score']:.2f} | "
-                f"5d {pct(row.get('fwd_return_5d'))}"
-            ),
-            axis=1,
-        )
-        selected_label = chart_controls[0].selectbox(
-            "Select Setup B candidate",
-            options=setup_b["candidate_label"].head(1000).tolist(),
-            key="setup_b_candidate_chart_select",
-        )
-        window_days = chart_controls[1].slider("Chart window days", 5, 90, 20, 5)
-        selected = setup_b[setup_b["candidate_label"] == selected_label].iloc[0]
-        st.caption(
-            f"{selected['ticker']} on {selected['date']} - {selected.get('daily_setup_explanation', '')}. "
-            "Blue dashed line marks the candidate date."
-        )
-        st.dataframe(format_setup_b_gate_panel(selected), width="stretch", hide_index=True)
-        history = load_scored_history()
-        if history is None:
-            st.info("No scored history file found at `data/features/scored_history.parquet`. Rerun daily mode first.")
+        if setup_b.empty:
+            st.info("No Setup B candidates after applying slice filters.")
         else:
-            render_candlestick_with_volume(history, str(selected["ticker"]), selected["date"], window_days)
+            chart_controls = st.columns([2, 1])
+            setup_b["candidate_label"] = setup_b.apply(
+                lambda row: (
+                    f"{row['date']} | {row['ticker']} | score {row['best_daily_setup_score']:.2f} | "
+                    f"5d {pct(row.get('fwd_return_5d'))}"
+                ),
+                axis=1,
+            )
+            selected_label = chart_controls[0].selectbox(
+                "Select Setup B candidate",
+                options=setup_b["candidate_label"].head(1000).tolist(),
+                key="setup_b_candidate_chart_select",
+            )
+            window_days = chart_controls[1].slider("Chart window days", 5, 90, 20, 5)
+            selected = setup_b[setup_b["candidate_label"] == selected_label].iloc[0]
+            st.caption(
+                f"{selected['ticker']} on {selected['date']} - {selected.get('daily_setup_explanation', '')}. "
+                "Blue dashed line marks the candidate date."
+            )
+            if selected.get("setup_b_variant"):
+                st.caption(f"Variant: {selected.get('setup_b_variant')} - {selected.get('setup_b_variant_reason', '')}")
+            st.dataframe(format_setup_b_gate_panel(selected), width="stretch", hide_index=True)
+            history = load_scored_history()
+            if history is None:
+                st.info("No scored history file found at `data/features/scored_history.parquet`. Rerun daily mode first.")
+            else:
+                render_candlestick_with_volume(history, str(selected["ticker"]), selected["date"], window_days)
 
     setup_b_buckets, setup_b_bucket_path = load_latest(DATA_DIR / "backtests", "setup_b_score_buckets_*.parquet")
     if setup_b_buckets is not None:
@@ -680,6 +927,197 @@ def render_daily_setups() -> None:
             if setup_b_diag is not None:
                 st.caption(f"Bucket diagnostics: {setup_b_diag_path}")
                 st.dataframe(format_bucket_summary(setup_b_diag), width="stretch", hide_index=True)
+
+    setup_b_slices, setup_b_slices_path = load_latest(DATA_DIR / "backtests", "setup_b_slices_*.parquet")
+    if setup_b_slices is not None:
+        with st.expander("Setup B Slice Results", expanded=True):
+            st.caption(f"File: {setup_b_slices_path}")
+            st.markdown(
+                """
+                Slices split Setup B candidates into conditions such as market regime, pullback depth, volume dry-up,
+                trend strength, confirmation quality, and volatility. Use this to find where the setup works or fails.
+                """
+            )
+            slice_names = sorted(setup_b_slices["slice"].dropna().unique())
+            selected_slice = st.selectbox("Slice", options=slice_names, key="setup_b_slice_select")
+            selected_horizon = st.selectbox(
+                "Horizon",
+                options=sorted(setup_b_slices["horizon_days"].dropna().unique()),
+                index=1 if len(setup_b_slices["horizon_days"].dropna().unique()) > 1 else 0,
+                key="setup_b_slice_horizon",
+            )
+            slice_view = setup_b_slices[
+                (setup_b_slices["slice"] == selected_slice)
+                & (setup_b_slices["horizon_days"] == selected_horizon)
+            ].sort_values("mean", ascending=False)
+            st.dataframe(format_bucket_summary(slice_view), width="stretch", hide_index=True)
+
+    setup_b_interactions, setup_b_interactions_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_interaction_slices_*.parquet"
+    )
+    if setup_b_interactions is not None:
+        with st.expander("Setup B Interaction Slices", expanded=True):
+            st.caption(f"File: {setup_b_interactions_path}")
+            st.markdown("Interaction slices test two conditions at once, such as market regime plus confirmation quality.")
+            interaction_pairs = sorted(setup_b_interactions["interaction_pair"].dropna().unique())
+            selected_pair = st.selectbox("Interaction pair", options=interaction_pairs, key="setup_b_interaction_pair")
+            selected_interaction_horizon = st.selectbox(
+                "Interaction horizon",
+                options=sorted(setup_b_interactions["horizon_days"].dropna().unique()),
+                index=1 if len(setup_b_interactions["horizon_days"].dropna().unique()) > 1 else 0,
+                key="setup_b_interaction_horizon",
+            )
+            interaction_view = setup_b_interactions[
+                (setup_b_interactions["interaction_pair"] == selected_pair)
+                & (setup_b_interactions["horizon_days"] == selected_interaction_horizon)
+            ].sort_values("mean", ascending=False)
+            st.dataframe(format_bucket_summary(interaction_view), width="stretch", hide_index=True)
+
+    setup_b_variants, setup_b_variants_path = load_latest(DATA_DIR / "backtests", "setup_b_variants_*.parquet")
+    if setup_b_variants is not None:
+        with st.expander("Setup B Variants", expanded=True):
+            st.caption(f"File: {setup_b_variants_path}")
+            st.markdown(
+                """
+                Variants are stricter research labels layered on top of Setup B. They test whether cleaner subsets
+                behave better than the broad Setup B scanner. Benchmark-relative columns subtract SPY forward returns
+                on the same dates when SPY is available.
+                """
+            )
+            variant_horizon = st.selectbox(
+                "Variant horizon",
+                options=sorted(setup_b_variants["horizon_days"].dropna().unique()),
+                index=1 if len(setup_b_variants["horizon_days"].dropna().unique()) > 1 else 0,
+                key="setup_b_variant_horizon",
+            )
+            variant_view = setup_b_variants[setup_b_variants["horizon_days"] == variant_horizon]
+            sort_columns = [column for column in ["relative_mean", "mean"] if column in variant_view.columns]
+            if sort_columns:
+                variant_view = variant_view.sort_values(sort_columns, ascending=False, na_position="last")
+            st.dataframe(format_bucket_summary(variant_view), width="stretch", hide_index=True)
+
+    setup_b_regime, setup_b_regime_path = load_latest(DATA_DIR / "backtests", "setup_b_market_regime_*.parquet")
+    setup_b_regime_monthly, setup_b_regime_monthly_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_market_regime_monthly_*.parquet"
+    )
+    if setup_b_regime is not None or setup_b_regime_monthly is not None:
+        with st.expander("Setup B Market Regime Diagnostics", expanded=True):
+            st.markdown(
+                """
+                Market regime diagnostics compare Setup B candidates in positive SPY/QQQ conditions versus weak or
+                choppy benchmark conditions. Absolute returns can look good in weak regimes if the market rebounds;
+                benchmark-relative returns show whether candidates beat SPY on the same dates.
+                """
+            )
+            if setup_b_regime is not None:
+                st.caption(f"Summary file: {setup_b_regime_path}")
+                regime_horizon = st.selectbox(
+                    "Regime horizon",
+                    options=sorted(setup_b_regime["horizon_days"].dropna().unique()),
+                    index=1 if len(setup_b_regime["horizon_days"].dropna().unique()) > 1 else 0,
+                    key="setup_b_regime_horizon",
+                )
+                regime_view = setup_b_regime[setup_b_regime["horizon_days"] == regime_horizon].sort_values(
+                    "relative_mean" if "relative_mean" in setup_b_regime.columns else "mean",
+                    ascending=False,
+                    na_position="last",
+                )
+                st.dataframe(format_bucket_summary(regime_view), width="stretch", hide_index=True)
+            if setup_b_regime_monthly is not None:
+                st.caption(f"Monthly file: {setup_b_regime_monthly_path}")
+                monthly_horizon = st.selectbox(
+                    "Monthly horizon",
+                    options=sorted(setup_b_regime_monthly["horizon_days"].dropna().unique()),
+                    index=1 if len(setup_b_regime_monthly["horizon_days"].dropna().unique()) > 1 else 0,
+                    key="setup_b_regime_monthly_horizon",
+                )
+                monthly_view = setup_b_regime_monthly[
+                    setup_b_regime_monthly["horizon_days"] == monthly_horizon
+                ].sort_values(["month", "market_regime"], ascending=[False, True])
+                st.dataframe(format_bucket_summary(monthly_view.head(36)), width="stretch", hide_index=True)
+
+    setup_b_relative_monthly, setup_b_relative_monthly_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_benchmark_relative_monthly_*.parquet"
+    )
+    setup_b_date_declustered, setup_b_date_declustered_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_date_declustered_*.parquet"
+    )
+    setup_b_sector_declustered, setup_b_sector_declustered_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_sector_declustered_*.parquet"
+    )
+    if setup_b_relative_monthly is not None or setup_b_date_declustered is not None:
+        with st.expander("Setup B Benchmark/Declustering Diagnostics", expanded=True):
+            st.markdown(
+                """
+                These diagnostics test whether Setup B groups still look useful after comparing to SPY/QQQ and
+                after giving each trading date equal weight. This helps separate potential alpha from rebound beta
+                and candidate clustering on a few busy dates.
+                """
+            )
+            if setup_b_date_declustered is not None:
+                st.caption(f"Date-declustered file: {setup_b_date_declustered_path}")
+                decluster_cols = st.columns(3)
+                decluster_benchmark = decluster_cols[0].selectbox(
+                    "Decluster benchmark",
+                    options=sorted(setup_b_date_declustered["benchmark"].dropna().unique()),
+                    key="setup_b_decluster_benchmark",
+                )
+                decluster_horizon = decluster_cols[1].selectbox(
+                    "Decluster horizon",
+                    options=sorted(setup_b_date_declustered["horizon_days"].dropna().unique()),
+                    index=1 if len(setup_b_date_declustered["horizon_days"].dropna().unique()) > 1 else 0,
+                    key="setup_b_decluster_horizon",
+                )
+                decluster_group = decluster_cols[2].selectbox(
+                    "Decluster group",
+                    options=sorted(setup_b_date_declustered["group_type"].dropna().unique()),
+                    key="setup_b_decluster_group",
+                )
+                decluster_view = setup_b_date_declustered[
+                    (setup_b_date_declustered["benchmark"] == decluster_benchmark)
+                    & (setup_b_date_declustered["horizon_days"] == decluster_horizon)
+                    & (setup_b_date_declustered["group_type"] == decluster_group)
+                ].sort_values("date_declustered_relative_mean", ascending=False)
+                st.dataframe(format_bucket_summary(decluster_view), width="stretch", hide_index=True)
+            if setup_b_relative_monthly is not None:
+                st.caption(f"Monthly benchmark-relative file: {setup_b_relative_monthly_path}")
+                monthly_cols = st.columns(4)
+                monthly_benchmark = monthly_cols[0].selectbox(
+                    "Monthly benchmark",
+                    options=sorted(setup_b_relative_monthly["benchmark"].dropna().unique()),
+                    key="setup_b_relative_monthly_benchmark",
+                )
+                monthly_relative_horizon = monthly_cols[1].selectbox(
+                    "Monthly relative horizon",
+                    options=sorted(setup_b_relative_monthly["horizon_days"].dropna().unique()),
+                    index=1 if len(setup_b_relative_monthly["horizon_days"].dropna().unique()) > 1 else 0,
+                    key="setup_b_relative_monthly_horizon",
+                )
+                monthly_group = monthly_cols[2].selectbox(
+                    "Monthly group",
+                    options=sorted(setup_b_relative_monthly["group_type"].dropna().unique()),
+                    key="setup_b_relative_monthly_group",
+                )
+                monthly_value_options = sorted(
+                    setup_b_relative_monthly[setup_b_relative_monthly["group_type"] == monthly_group]["group_value"]
+                    .dropna()
+                    .unique()
+                )
+                monthly_value = monthly_cols[3].selectbox(
+                    "Monthly value",
+                    options=monthly_value_options,
+                    key="setup_b_relative_monthly_value",
+                )
+                relative_monthly_view = setup_b_relative_monthly[
+                    (setup_b_relative_monthly["benchmark"] == monthly_benchmark)
+                    & (setup_b_relative_monthly["horizon_days"] == monthly_relative_horizon)
+                    & (setup_b_relative_monthly["group_type"] == monthly_group)
+                    & (setup_b_relative_monthly["group_value"] == monthly_value)
+                ].sort_values("month", ascending=False)
+                st.dataframe(format_bucket_summary(relative_monthly_view.head(36)), width="stretch", hide_index=True)
+            if setup_b_sector_declustered is not None:
+                st.caption(f"Sector de-clustered file: {setup_b_sector_declustered_path}")
+                st.dataframe(setup_b_sector_declustered, width="stretch", hide_index=True)
 
     with st.expander("How daily setup scores work"):
         st.markdown(

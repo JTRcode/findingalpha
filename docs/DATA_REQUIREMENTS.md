@@ -69,6 +69,30 @@ For the intraday research layer:
 - For Vancouver user-facing display, localize UI timestamps to America/Vancouver when useful.
 - Never use news, earnings, filings, or fundamentals unless the availability timestamp is known or conservatively lagged.
 
+## Earnings Event Overlay
+The dashboard can overlay earnings events on daily candidate candle charts when a local file exists at:
+- `data/events/earnings.csv`
+- `data/events/earnings.parquet`
+
+Supported columns:
+- `ticker` or `symbol`
+- `date`, `report_date`, or `earnings_date`
+- `time`, `when`, or `session`
+- optional: `eps_actual`, `eps_estimate`, `revenue_actual`, `revenue_estimate`
+
+Timing rules:
+- before-open or unknown events are marked on the reported date.
+- after-close/post-market events are marked on the next available trading session.
+- earnings data is chart context only right now; it is not yet used in alpha tests or scores.
+
+Example CSV:
+
+```csv
+ticker,date,time,eps_actual,eps_estimate
+NVDA,2026-02-25,after_close,1.24,1.18
+AAPL,2026-01-29,after_close,2.05,2.01
+```
+
 ## Signal Snapshot Schema
 Every screener run must save one row per ticker with:
 - `run_timestamp_utc`

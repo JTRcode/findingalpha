@@ -32,13 +32,19 @@ The project also tests rule-based daily setup candidates:
 
 These are sequence-aware prototypes based on multi-day features such as 60-day trend, pullback from recent high, relative volume, moving-average structure, extension, bounce attempts, and downside confirmation. They are research labels, not trade instructions.
 
-The scanner uses mandatory gates plus scores. A candidate should pass core structure requirements before it can appear:
+The scanner now uses a two-level structure:
+
+- Broad scanner gate: looser eligibility that captures plausible Setup B research candidates.
+- Strict gates: higher-quality audit labels that show whether the original stricter playbook conditions passed.
+- Quality score: continuous ranking score used to compare candidates after broad eligibility.
+
+A broad candidate should still have trend, pullback, volume, structure, and confirmation evidence, but it does not need every strict gate to pass before it can appear:
 
 - Setup B requires strong trend, controlled pullback, structure hold, volume dry-up, and confirmation.
 - Setup A requires extension, stretch, high volume, failed strength, and downside reversal.
 - Setup C requires weak structure, bounce attempt, failed reclaim, downside volume, and downside confirmation.
 
-The default candidate threshold is intentionally selective at `0.75`, and the dashboard includes a threshold slider for exploration.
+The default candidate threshold is `0.60`, and the dashboard includes a threshold slider for exploration. Higher thresholds can be used for stricter chart review, but alpha tests should avoid stacking too many filters until sample sizes are large enough.
 
 The dashboard includes a Setup B chart inspection workflow. For each selected candidate it displays daily candles and volume before and after the candidate date, so the rule capture can be visually audited against the intended playbook.
 
@@ -50,7 +56,7 @@ Setup B is now split into explicit pass/fail gates:
 - Structure gate: price holds the 20/50 SMA area, stays above 50 SMA, and 20-day momentum has not broken.
 - Confirmation gate: positive close in the upper daily range and reclaim of prior high or close above 20 SMA.
 
-The dashboard shows these gates as pass/fail for each selected Setup B chart candidate. Each gate also has a continuous 0-1 quality score. Gates determine eligibility; quality scores rank eligible candidates.
+The dashboard shows the broad scanner gate, strict match flag, and strict gate pass/fail status for each selected Setup B chart candidate. Each strict gate also has a continuous 0-1 quality score. Broad eligibility determines whether a candidate can be researched; quality scores and strict gates rank and explain candidates.
 
 Setup B quality scoring:
 
@@ -59,6 +65,10 @@ Setup B quality scoring:
 - Volume quality: current and recent pullback volume dry up relative to prior volume.
 - Structure quality: price holds the 20/50 SMA area.
 - Confirmation quality: close strength, prior-high reclaim, and positive daily return.
+
+The current Setup B implementation is versioned as `setup_b_v1_broad_scanner`. If the rules or weights change, the new version should be documented so old signal snapshots are not mixed with new definitions.
+
+The generic `composite_score` is separate from the playbook setup scores. It is a broad technical ranking score for the latest screener table, while `daily_setup_b_trend_pullback_score` is the rule-based Setup B research score. They should not be interpreted as the same signal.
 
 Setup B bucket diagnostics report:
 
@@ -73,6 +83,40 @@ Setup B bucket diagnostics report:
 - rough interpretation label
 
 Interpretation is only a screen. Promising diagnostics still need visual review, out-of-sample testing, benchmark-relative returns, and transaction-cost checks.
+
+Setup B slice diagnostics split candidates by:
+
+- market regime
+- pullback depth
+- pullback duration
+- volume dry-up strength
+- trend quality
+- confirmation quality
+- ATR/volatility
+
+The goal is to determine whether poor aggregate results hide a conditional edge, such as Setup B only working when SPY is in a positive regime or when the pullback depth is in a narrow range.
+
+Market regime uses SPY when present, otherwise QQQ. Daily runs fetch benchmark context symbols alongside the selected universe so market regime can be calculated even when the universe is `sp500_current`, which does not include SPY or QQQ. Candidates remain restricted to the selected universe.
+
+Interaction slices test combinations of conditions, including:
+
+- market regime x confirmation quality
+- market regime x ATR
+- confirmation quality x ATR
+- confirmation quality x pullback depth
+- pullback depth x pullback duration
+- volume dry-up x confirmation quality
+
+These should be used carefully because each added condition reduces sample size and increases data-mining risk.
+
+Setup B variants combine the most interesting slice findings into stricter research labels:
+
+- `conservative_continuation`: positive benchmark regime, low/medium ATR, strong confirmation, and at least moderate volume dry-up.
+- `momentum_rebound`: positive benchmark regime, high ATR, strong confirmation, and strong volume dry-up.
+- `high_atr_watch`: positive benchmark regime, high ATR, and at least moderate confirmation.
+- `other_setup_b`: broad Setup B candidates that do not match the stricter variants.
+
+Variants are not trade rules. They are diagnostic groups for testing whether Setup B works better under narrower conditions. Variant diagnostics include absolute forward returns and SPY-relative forward returns when SPY data is available.
 
 ## Bucket Analysis
 For each score bucket:

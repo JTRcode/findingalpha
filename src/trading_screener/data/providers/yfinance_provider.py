@@ -9,8 +9,24 @@ from trading_screener.data.providers.base import MarketDataProvider
 
 class YFinanceProvider(MarketDataProvider):
     name = "yfinance"
+    batch_size = 100
 
     def fetch_daily_bars(
+        self,
+        tickers: list[str],
+        start: date | str,
+        end: date | str | None = None,
+    ) -> pd.DataFrame:
+        frames = [
+            self._fetch_daily_bars_batch(tickers=tickers[index : index + self.batch_size], start=start, end=end)
+            for index in range(0, len(tickers), self.batch_size)
+        ]
+        frames = [frame for frame in frames if not frame.empty]
+        if not frames:
+            return pd.DataFrame(columns=_BAR_COLUMNS + ["provider"])
+        return pd.concat(frames, ignore_index=True)
+
+    def _fetch_daily_bars_batch(
         self,
         tickers: list[str],
         start: date | str,
@@ -31,7 +47,7 @@ class YFinanceProvider(MarketDataProvider):
             threads=True,
         )
         if raw.empty:
-            return pd.DataFrame(columns=_BAR_COLUMNS)
+            return pd.DataFrame(columns=_BAR_COLUMNS + ["provider"])
 
         frames: list[pd.DataFrame] = []
         if isinstance(raw.columns, pd.MultiIndex):
@@ -64,4 +80,3 @@ class YFinanceProvider(MarketDataProvider):
 
 
 _BAR_COLUMNS = ["ticker", "date", "open", "high", "low", "close", "adj_close", "volume"]
-

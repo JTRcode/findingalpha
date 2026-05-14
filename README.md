@@ -126,6 +126,12 @@ Setup B candidates are split into visible pass/fail gates: trend, pullback, volu
 
 Setup B diagnostics are written to `data/backtests/setup_b_bucket_diagnostics_*.csv` and `data/backtests/setup_b_top_bottom_spreads_*.csv`. These include count, mean, median, win rate, standard error, t-stat, and top-bottom spread interpretation.
 
+Setup B slice results are written to `data/backtests/setup_b_slices_*.csv`. Slices show whether the setup behaves differently by market regime, pullback depth/duration, volume dry-up, trend quality, confirmation quality, and ATR.
+
+Market regime slices need benchmark context. Daily runs automatically fetch SPY/QQQ alongside the selected universe for regime analysis, but candidates remain restricted to the selected universe. If old slice files show only `benchmark_missing` or `unknown`, rerun the daily pipeline.
+
+Setup B interaction slices are written to `data/backtests/setup_b_interaction_slices_*.csv`. Interaction slices test two conditions at once, such as market regime plus confirmation quality. The dashboard also lets you filter the Setup B candidate view by ATR slice, confirmation slice, and market regime.
+
 ## Implementation Status
 The MVP code includes a provider interface, yfinance daily provider, Alpaca historical market-data provider, Massive/Polygon historical market-data provider, Parquet storage helpers, feature generation, composite scoring, timestamped signal snapshots, forward-return bucket evaluation, intraday setup candidates, benchmark comparison, top/bottom spread summaries, a simple basket research helper, transaction-cost sensitivity, CLI, Streamlit dashboard, and tests. This remains phase 1 research software only.
 

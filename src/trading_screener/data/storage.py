@@ -12,7 +12,7 @@ def utc_timestamp_slug(now: datetime | None = None) -> str:
 
 
 def ensure_data_dirs(data_dir: Path) -> None:
-    for child in ["raw", "processed", "features", "signals", "backtests"]:
+    for child in ["raw", "processed", "features", "signals", "backtests", "events"]:
         (data_dir / child).mkdir(parents=True, exist_ok=True)
 
 
@@ -34,4 +34,3 @@ def write_timestamped_outputs(df: pd.DataFrame, directory: Path, stem: str) -> t
     df.to_parquet(parquet_path, index=False)
     df.to_csv(csv_path, index=False)
     return parquet_path, csv_path
-

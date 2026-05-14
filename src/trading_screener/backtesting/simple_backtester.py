@@ -8,7 +8,9 @@ from trading_screener.research.forward_returns import add_forward_returns
 def simple_top_ranked_basket(scored_history: pd.DataFrame, top_n: int = 5, horizon: int = 5) -> pd.DataFrame:
     if f"fwd_return_{horizon}d" not in scored_history.columns:
         scored_history = add_forward_returns(scored_history, horizons=(horizon,))
-    df = scored_history.sort_values(["date", "composite_score"], ascending=[True, False]).copy()
+    columns = ["ticker", "date", "composite_score", f"fwd_return_{horizon}d"]
+    df = scored_history[[column for column in columns if column in scored_history.columns]].copy()
+    df = df.sort_values(["date", "composite_score"], ascending=[True, False])
     picks = df.groupby("date").head(top_n)
     returns = picks.groupby("date")[f"fwd_return_{horizon}d"].mean().dropna()
     out = returns.rename("basket_return").reset_index()

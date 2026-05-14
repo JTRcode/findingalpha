@@ -18,7 +18,8 @@ def assign_score_buckets(df: pd.DataFrame, buckets: int = 5) -> pd.DataFrame:
 
 
 def evaluate_score_buckets(scored_history: pd.DataFrame, buckets: int = 5) -> pd.DataFrame:
-    df = assign_score_buckets(add_forward_returns(scored_history), buckets=buckets)
+    df = _bucket_research_frame(scored_history)
+    df = assign_score_buckets(df, buckets=buckets)
     rows: list[dict[str, float | int]] = []
     for horizon in HORIZONS:
         column = f"fwd_return_{horizon}d"
@@ -56,7 +57,8 @@ def benchmark_comparison(
     top_bucket: float | None = None,
     buckets: int = 5,
 ) -> pd.DataFrame:
-    df = assign_score_buckets(add_forward_returns(scored_history), buckets=buckets)
+    df = _bucket_research_frame(scored_history)
+    df = assign_score_buckets(df, buckets=buckets)
     if top_bucket is None and not df["score_bucket"].dropna().empty:
         top_bucket = float(df["score_bucket"].max())
 
@@ -92,6 +94,12 @@ def benchmark_comparison(
                 }
             )
     return pd.DataFrame(rows)
+
+
+def _bucket_research_frame(scored_history: pd.DataFrame) -> pd.DataFrame:
+    df = add_forward_returns(scored_history)
+    columns = ["ticker", "date", "composite_score", *[f"fwd_return_{horizon}d" for horizon in HORIZONS]]
+    return df[[column for column in columns if column in df.columns]].copy()
 
 
 def transaction_cost_sensitivity(

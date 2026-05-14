@@ -18,6 +18,22 @@ def build_ranked_screen(
 ) -> pd.DataFrame:
     features = add_technical_features(bars)
     scored = add_daily_playbook_scores(add_composite_score(features))
+    return build_ranked_screen_from_scored(
+        scored=scored,
+        provider=provider,
+        universe=universe,
+        config_version=config_version,
+        code_version=code_version,
+    )
+
+
+def build_ranked_screen_from_scored(
+    scored: pd.DataFrame,
+    provider: str,
+    universe: str,
+    config_version: str,
+    code_version: str,
+) -> pd.DataFrame:
     latest_dates = scored.groupby("ticker")["date"].transform("max")
     latest = scored[scored["date"] == latest_dates].copy()
     latest["run_timestamp_utc"] = datetime.now(timezone.utc).isoformat()

@@ -10,9 +10,20 @@ DAILY_SETUP_COLUMNS = [
     "daily_setup_c_failed_bounce_score",
 ]
 
+SETUP_B_VERSION = "setup_b_v1_broad_scanner"
+SETUP_B_DEFAULT_MIN_SCORE = 0.60
+SETUP_B_QUALITY_WEIGHTS = {
+    "trend": 0.25,
+    "pullback": 0.25,
+    "structure": 0.20,
+    "volume": 0.15,
+    "confirmation": 0.15,
+}
+
 
 def add_daily_playbook_scores(features: pd.DataFrame) -> pd.DataFrame:
     df = features.copy()
+    df["daily_setup_b_version"] = SETUP_B_VERSION
 
     df["setup_b_trend_gate"] = (
         (df["momentum_60d"] > 0.10)
@@ -44,6 +55,8 @@ def add_daily_playbook_scores(features: pd.DataFrame) -> pd.DataFrame:
         & df["setup_b_structure_gate"]
         & df["setup_b_confirmation_gate"]
     )
+    df["setup_b_strict_gate"] = setup_b_gate
+    df["setup_b_scanner_gate"] = _setup_b_broad_scanner_gate(df)
 
     trend_momentum_quality = _clip01((df["momentum_60d"] - 0.10) / 0.20)
     trend_ma_quality = _clip01((df["price_vs_sma50"] - 0.02) / 0.08)
@@ -73,14 +86,14 @@ def add_daily_playbook_scores(features: pd.DataFrame) -> pd.DataFrame:
     ).fillna(0)
 
     setup_b_quality_score = (
-        df["setup_b_trend_quality"] * 0.25
-        + df["setup_b_pullback_quality"] * 0.25
-        + df["setup_b_structure_quality"] * 0.20
-        + df["setup_b_volume_quality"] * 0.15
-        + df["setup_b_confirmation_quality"] * 0.15
+        df["setup_b_trend_quality"] * SETUP_B_QUALITY_WEIGHTS["trend"]
+        + df["setup_b_pullback_quality"] * SETUP_B_QUALITY_WEIGHTS["pullback"]
+        + df["setup_b_structure_quality"] * SETUP_B_QUALITY_WEIGHTS["structure"]
+        + df["setup_b_volume_quality"] * SETUP_B_QUALITY_WEIGHTS["volume"]
+        + df["setup_b_confirmation_quality"] * SETUP_B_QUALITY_WEIGHTS["confirmation"]
     )
 
-    df["daily_setup_b_trend_pullback_score"] = setup_b_quality_score * setup_b_gate.astype(float)
+    df["daily_setup_b_trend_pullback_score"] = setup_b_quality_score * df["setup_b_scanner_gate"].astype(float)
 
     extended_run = (df["momentum_5d"] > 0.10) | (df["extension_from_20d_low"] > 0.22)
     stretched_from_ma = df["price_vs_sma20"] > 0.10
@@ -114,21 +127,29 @@ def add_daily_playbook_scores(features: pd.DataFrame) -> pd.DataFrame:
         + confirmation_down.astype(float) * 0.10
     ) * setup_c_gate.astype(float)
 
+    best_scores = df[DAILY_SETUP_COLUMNS].max(axis=1)
     df["best_daily_setup"] = df[DAILY_SETUP_COLUMNS].idxmax(axis=1).str.replace("daily_", "", regex=False).str.replace("_score", "", regex=False)
-    df["best_daily_setup_score"] = df[DAILY_SETUP_COLUMNS].max(axis=1)
+    df.loc[best_scores <= 0, "best_daily_setup"] = "none"
+    df["best_daily_setup_score"] = best_scores
     df["daily_setup_explanation"] = df.apply(_explain_daily_row, axis=1)
     return df
 
 
-def daily_setup_candidates(scored: pd.DataFrame, min_score: float = 0.75) -> pd.DataFrame:
-    candidates = scored[scored["best_daily_setup_score"] >= min_score].copy()
+def daily_setup_candidates(scored: pd.DataFrame, min_score: float = SETUP_B_DEFAULT_MIN_SCORE) -> pd.DataFrame:
+    candidates = scored[(scored["best_daily_setup_score"] >= min_score) & (scored["best_daily_setup"] != "none")].copy()
     return candidates.sort_values(["date", "best_daily_setup_score"], ascending=[False, False]).reset_index(drop=True)
 
 
 def _explain_daily_row(row: pd.Series) -> str:
     setup = row.get("best_daily_setup", "")
     parts: list[str] = []
+    if setup == "none":
+        return "no daily playbook setup"
     if setup == "setup_b_trend_pullback":
+        if row.get("setup_b_scanner_gate", False):
+            parts.append("broad scanner match")
+        if row.get("setup_b_strict_gate", False):
+            parts.append("strict setup match")
         gate_labels = [
             ("setup_b_trend_gate", "trend gate"),
             ("setup_b_pullback_gate", "pullback gate"),
@@ -164,3 +185,29 @@ def _clip01(series: pd.Series) -> pd.Series:
 
 def _triangular_quality(series: pd.Series, ideal: float, half_width: float) -> pd.Series:
     return _clip01(1 - ((series - ideal).abs() / half_width))
+
+
+def _setup_b_broad_scanner_gate(df: pd.DataFrame) -> pd.Series:
+    trend = (
+        (df["momentum_60d"] > 0.04)
+        & (df["price_vs_sma50"] > -0.02)
+        & (df["price_vs_sma200"] > -0.05)
+        & ((df["sma_20"] > df["sma_50"]) | (df["close"] > df["sma_50"]))
+    )
+    pullback = (
+        df["pullback_from_10d_high"].between(-0.10, -0.005)
+        & df["pullback_days_7d"].between(1, 7)
+        & (df["large_red_candles_5d"] <= 1)
+    )
+    volume = (df["relative_volume"] < 1.25) | (df["pullback_volume_ratio"] < 1.10)
+    structure = (
+        ((df["price_vs_sma20"] > -0.05) | (df["price_vs_sma50"] > -0.03))
+        & (df["momentum_20d"] > -0.08)
+        & (df["close"] > df["sma_50"] * 0.96)
+    )
+    confirmation = (
+        (df["return_1d"] > -0.005)
+        & (df["close_position_in_range"] > 0.45)
+        & (df["reclaims_prior_high"] | (df["close"] > df["sma_20"]) | (df["return_1d"] > 0))
+    )
+    return trend & pullback & volume & structure & confirmation

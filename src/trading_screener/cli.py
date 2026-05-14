@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date, timedelta
+import gc
 import warnings
 
 from trading_screener import __version__
@@ -22,13 +23,20 @@ from trading_screener.research.forward_returns import add_forward_returns
 from trading_screener.research.intraday_forward_returns import add_intraday_forward_returns
 from trading_screener.research.setup_eval import (
     evaluate_daily_setups,
+    evaluate_setup_b_benchmark_relative_monthly,
     evaluate_setup_b_bucket_diagnostics,
+    evaluate_setup_b_date_declustering,
+    evaluate_setup_b_interaction_slices,
+    evaluate_setup_b_market_regime_diagnostics,
     evaluate_setup_b_score_buckets,
+    evaluate_setup_b_sector_declustering,
+    evaluate_setup_b_slices,
+    evaluate_setup_b_variants,
 )
 from trading_screener.signals.daily_playbook import add_daily_playbook_scores, daily_setup_candidates
 from trading_screener.signals.scoring import add_composite_score
 from trading_screener.signals.playbook import add_intraday_setup_scores, intraday_candidates
-from trading_screener.signals.screeners import build_ranked_screen
+from trading_screener.signals.screeners import build_ranked_screen_from_scored
 from trading_screener.universe import load_universe, load_universe_metadata
 
 
@@ -50,6 +58,8 @@ def main() -> None:
 
     settings = default_settings()
     tickers = args.tickers or (load_universe(args.universe) if args.universe else list(settings.universe))
+    context_tickers = [ticker for ticker in settings.benchmark_tickers if ticker not in tickers]
+    fetch_tickers = tickers + context_tickers
     if args.universe:
         universe_name = args.universe
     elif args.tickers:
@@ -73,12 +83,13 @@ def main() -> None:
         return
 
     if not args.intraday_only:
-        bars = provider.fetch_daily_bars(tickers=tickers, start=args.start, end=args.end)
+        bars = provider.fetch_daily_bars(tickers=fetch_tickers, start=args.start, end=args.end)
         validate_daily_bars(bars)
-        if bars["ticker"].nunique() < 5:
+        universe_bar_count = bars[bars["ticker"].isin(tickers)]["ticker"].nunique()
+        if universe_bar_count < 5:
             warnings.warn(
                 "Daily alpha bucket tests are most useful with at least 5 tickers. "
-                f"This run has {bars['ticker'].nunique()} ticker(s), so the dashboard may show only one bucket.",
+                f"This run has {universe_bar_count} ticker(s), so the dashboard may show only one bucket.",
                 stacklevel=1,
             )
         write_parquet(bars, settings.data_dir / "raw" / provider.name / "daily_bars.parquet")
@@ -88,8 +99,8 @@ def main() -> None:
         scored_history = add_daily_playbook_scores(add_composite_score(features))
         write_parquet(scored_history, settings.data_dir / "features" / "scored_history.parquet")
 
-        screen = build_ranked_screen(
-            bars=bars,
+        screen = build_ranked_screen_from_scored(
+            scored=scored_history[scored_history["ticker"].isin(tickers)].copy(),
             provider=provider.name,
             universe=universe_name,
             config_version=settings.config_version,
@@ -101,7 +112,9 @@ def main() -> None:
         screen["universe_notes"] = universe_metadata.get("notes", "")
         parquet_path, csv_path = write_timestamped_outputs(screen, settings.data_dir / "signals", "signal_snapshot")
 
-        evaluated = add_forward_returns(scored_history)
+        evaluated = add_forward_returns(scored_history, copy=False)
+        del bars, features, scored_history
+        gc.collect()
         bucket_summary = evaluate_score_buckets(evaluated)
         write_timestamped_outputs(bucket_summary, settings.data_dir / "backtests", "forward_return_buckets")
         write_timestamped_outputs(top_bottom_spread(bucket_summary), settings.data_dir / "backtests", "top_bottom_spreads")
@@ -117,15 +130,17 @@ def main() -> None:
             settings.data_dir / "backtests",
             "transaction_cost_sensitivity",
         )
-        setup_candidates = daily_setup_candidates(evaluated)
+        universe_evaluated = evaluated[evaluated["ticker"].isin(tickers)].copy()
+        context_evaluated = evaluated[evaluated["ticker"].isin(tickers + list(settings.benchmark_tickers))].copy()
+        setup_candidates = daily_setup_candidates(universe_evaluated)
         write_timestamped_outputs(setup_candidates, settings.data_dir / "signals", "daily_setup_candidates")
-        write_timestamped_outputs(evaluate_daily_setups(evaluated), settings.data_dir / "backtests", "daily_setup_forward_returns")
+        write_timestamped_outputs(evaluate_daily_setups(universe_evaluated), settings.data_dir / "backtests", "daily_setup_forward_returns")
         write_timestamped_outputs(
-            evaluate_setup_b_score_buckets(evaluated),
+            evaluate_setup_b_score_buckets(universe_evaluated),
             settings.data_dir / "backtests",
             "setup_b_score_buckets",
         )
-        setup_b_diagnostics, setup_b_spreads = evaluate_setup_b_bucket_diagnostics(evaluated)
+        setup_b_diagnostics, setup_b_spreads = evaluate_setup_b_bucket_diagnostics(universe_evaluated)
         write_timestamped_outputs(
             setup_b_diagnostics,
             settings.data_dir / "backtests",
@@ -135,6 +150,47 @@ def main() -> None:
             setup_b_spreads,
             settings.data_dir / "backtests",
             "setup_b_top_bottom_spreads",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_slices(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_slices",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_interaction_slices(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_interaction_slices",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_variants(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_variants",
+        )
+        regime_summary, regime_monthly = evaluate_setup_b_market_regime_diagnostics(context_evaluated)
+        write_timestamped_outputs(
+            regime_summary,
+            settings.data_dir / "backtests",
+            "setup_b_market_regime",
+        )
+        write_timestamped_outputs(
+            regime_monthly,
+            settings.data_dir / "backtests",
+            "setup_b_market_regime_monthly",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_benchmark_relative_monthly(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_benchmark_relative_monthly",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_date_declustering(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_date_declustered",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_sector_declustering(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_sector_declustered",
         )
 
         print(f"Wrote signal snapshot: {parquet_path}")
