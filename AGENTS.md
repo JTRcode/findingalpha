@@ -49,6 +49,20 @@ Use `docs/DESIGN.md` as the short design authority for current system structure,
 
 Before changing a signal, dashboard page, research diagnostic, provider, or storage flow, check whether the change fits the design document. If it does not, update the design document first and explain the reason in `docs/RESEARCH_LOG.md` or an ADR.
 
+### ADR Update Requirement
+Create or update an ADR when changing:
+- data provider strategy
+- storage architecture
+- signal methodology
+- setup definitions
+- dashboard framework
+- backtesting or research methodology
+- broker/execution path
+- project phase boundaries
+- safety, compliance, or live-trading constraints
+
+Do not silently change an accepted architecture or methodology decision in code only. If a change supersedes an existing ADR, mark the old ADR as `Superseded`, explain why, and add or link the replacement ADR in `docs/DECISIONS.md`.
+
 ### Change Control Checklist
 Before implementing a new feature or changing an existing one, answer:
 - What research question does this answer?

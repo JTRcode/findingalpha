@@ -120,3 +120,10 @@ Date format: YYYY-MM-DD
 - Findings: The CLI calculated technical features and playbook scores, then rebuilt the ranked screen by recalculating the same features and scores from raw bars. Rows with no daily playbook score were also labelled as Setup B because the best-setup logic picked the first zero-valued score column. The generic composite score and Setup B score serve different purposes and should stay separate, but the Setup B rule set needs an explicit version so future changes do not silently redefine prior research outputs.
 - Decision: Reuse the already-scored history when building the latest ranked screen, label zero-score rows as `none`, exclude `none` rows from daily setup evaluation, and stamp Setup B output with `setup_b_v1_broad_scanner`.
 - Open questions: Whether the dashboard should eventually hide the generic composite score on the Setup B tab or rename it more clearly as a generic technical score.
+
+## 2026-05-13: ADR Usage Audit
+- Question: Are ADRs being used and updated as the project changes?
+- Sources checked: `docs/DECISIONS.md`, `docs/decisions/`, `docs/DESIGN.md`, `docs/RESEARCH_LOG.md`, and recent screener/research changes.
+- Findings: ADRs covered the original architecture and the intraday provider addition, but Setup B evolved into a major research-methodology decision without its own ADR. The detailed findings were documented in the research log and design doc, but the ADR index did not clearly record the accepted Setup B methodology.
+- Decision: Add ADR 0008 for Setup B research methodology and update the decision index.
+- Open questions: Whether a future ADR should decide if Setup A and Setup C stay in the main dashboard or move to a prototype/experimental area.
