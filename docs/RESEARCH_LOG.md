@@ -2,6 +2,41 @@
 
 Date format: YYYY-MM-DD
 
+## 2026-05-14: Setup B v1 Filter Diagnostics Review
+- Question: Why do the broad Volume and Structure gates show high pass rates from the prior step but low pass rates of total?
+- Sources checked: `data/backtests/setup_b_filter_diagnostics_20260514T071215Z.parquet`, `src/trading_screener/research/setup_eval.py`, `src/trading_screener/signals/daily_playbook.py`, `docs/SETUP_B_V1_RESEARCH_REPORT.md`.
+- Findings: `pass_rate_from_prior_step` is stored as `pass_rate_of_available` in the diagnostic artifact. In the cumulative funnel, `available_count` means the number of ticker-days that survived all previous gates. `pass_rate_of_total` is cumulative against the full research dataset. Broad Trend reduces the sample to 42.08% of total ticker-days, Pullback to 24.05%, Volume to 21.59%, Structure to 21.47%, and Confirmation to 8.18%. Volume passes 89.75% of the already trend-plus-pullback-filtered set, and Structure passes 99.44% of the already filtered set.
+- Decision: Keep Setup B v1 frozen. Treat broad Volume and Structure as audit/safety gates rather than primary selectivity drivers. For v2 research, prioritize Confirmation quality, Pullback quality, and diagnostic momentum-reset features before changing Volume or Structure thresholds.
+- Open questions: Does stricter Volume improve forward returns enough to justify reducing candidate count? Is Structure redundant after Trend and Pullback, or does it still protect against visibly broken charts in edge cases? Does Confirmation quality explain more forward-return variation than the current composite score?
+
+## 2026-05-14: Setup B v1 Condition-Level Filter Deep Dive
+- Question: Which specific v1 conditions are doing the filtering inside each gate, and which conditions are redundant?
+- Sources checked: `data/backtests/setup_b_filter_diagnostics_20260514T071215Z.parquet`, `data/features/scored_history.parquet`, `src/trading_screener/signals/daily_playbook.py`.
+- Findings: The broad scanner is mostly filtered by 60D momentum, pullback depth from the 10D high, 1D return, and close position in the daily range. Broad Volume is represented as two condition rows, but both rows use the same OR expression and therefore are not two independent broad filters. Broad Structure is mostly redundant after Trend/Pullback/Volume; its price-hold and close-vs-50 checks remove little to nothing once earlier gates have passed, while the 20D momentum condition removes only a small tail. Strict Volume is materially more restrictive than broad Volume and may be worth testing as a possible v2 diagnostic, but only if forward-return evidence improves.
+- Decision: Document Volume duplication and Structure redundancy in the v1 report. Keep v1 unchanged. Treat broad v1 as a candidate generator and strict v1 as a clean-playbook label.
+- Open questions: Should the dashboard display broad Volume as a single combined condition? Does strict Volume improve 5D/10D/20D returns after de-clustering and benchmark-relative checks? Should a future v2 include a stronger Structure condition, or should Structure stay an audit-only safety gate?
+
+## 2026-05-14: Setup B v1 Absolute vs Benchmark-Relative Returns
+- Question: Does Setup B's apparent forward-return pattern survive comparison against SPY and QQQ?
+- Sources checked: `data/backtests/setup_b_bucket_diagnostics_20260514T071218Z.parquet`, `data/backtests/setup_b_top_bottom_spreads_20260514T071218Z.parquet`, `data/backtests/setup_b_benchmark_relative_monthly_20260514T071235Z.parquet`, `data/backtests/setup_b_date_declustered_20260514T071239Z.parquet`.
+- Findings: Absolute bucket returns rise with score bucket mostly at 20D and 60D. The top-minus-bottom mean spread is 0.3999% at 20D and 1.4924% at 60D, but win-rate spreads are negative, suggesting the effect is not a simple higher-hit-rate edge. Aggregate Setup B is mildly positive versus SPY at 5D/10D and more positive at 20D/60D, but negative versus QQQ across 5D/10D/20D/60D. The highest score bucket is positive versus SPY at 5D/10D/20D/60D and positive versus QQQ at 20D/60D only. Date-declustered results preserve the top-minus-bottom pattern at 20D/60D, but QQQ-relative win rates remain near 50%.
+- Decision: Treat Setup B v1 as a possible longer-horizon swing research signal, not a short-horizon entry signal and not a validated strategy. Any v2 proposal must explain whether the top-bucket effect is true alpha or exposure to sector, beta, rebound, or momentum regimes.
+- Open questions: Is the 20D/60D top-bucket effect concentrated in a small number of sectors or market regimes? Does the effect remain after sector/date de-clustering and SPY/QQQ-relative monthly checks? Are larger winners driving the mean while most candidates remain ordinary?
+
+## 2026-05-14: Setup B v1 Slice and Interaction Review
+- Question: Do Setup B slices or interaction slices show anything promising enough for v2 research?
+- Sources checked: `data/backtests/setup_b_slices_20260514T071219Z.parquet`, `data/backtests/setup_b_interaction_slices_20260514T071221Z.parquet`, `data/backtests/setup_b_benchmark_relative_monthly_20260514T071235Z.parquet`, `data/backtests/setup_b_date_declustered_20260514T071239Z.parquet`.
+- Findings: High ATR is the strongest single slice. It leads absolute returns at 5D/10D/20D/60D and remains positive versus SPY and QQQ, including date-declustered QQQ-relative results at 20D/60D. Strong trend quality is also positive at longer horizons, but weaker than high ATR. Deeper pullback slices look strong in absolute returns, but the current benchmark-relative monthly artifact does not cover pullback-depth slices, so confidence is lower. Volume dry-up and confirmation quality do not show clean monotonic improvement. Interaction slices are dominated by high ATR combinations, especially `moderate_confirmation + high_atr` and market-regime-plus-high-ATR combinations.
+- Decision: Treat high ATR as the leading v2 research hypothesis, not an accepted rule. Do not promote volume dry-up or stronger confirmation based on current slice evidence.
+- Open questions: Is the high ATR effect sector concentration, beta/rebound exposure, or true stock-selection alpha? Do pullback-depth slices survive SPY/QQQ-relative and date-declustered testing once added to benchmark-relative artifacts? How much of the high ATR mean comes from outliers?
+
+## 2026-05-14: Setup B v1 Pre-v2 Evidence Hardening
+- Question: After adding broader benchmark-relative, date-declustered, outlier, and yearly-consistency diagnostics, which v2 hypotheses remain credible?
+- Sources checked: `data/backtests/setup_b_benchmark_relative_monthly_20260514T075532Z.parquet`, `data/backtests/setup_b_date_declustered_20260514T075544Z.parquet`, `data/backtests/setup_b_outlier_diagnostics_20260514T075548Z.parquet`, `data/backtests/setup_b_time_consistency_20260514T075555Z.parquet`.
+- Findings: High ATR remains the strongest v2 hypothesis. At 20D it has 3.66% absolute mean, 2.05% QQQ-relative mean, and 2.13% date-declustered QQQ-relative mean. At 60D it has 11.67% absolute mean, 6.41% QQQ-relative mean, and 7.15% date-declustered QQQ-relative mean. High ATR has a 75% positive-year rate versus QQQ at 60D. `moderate_confirmation + high_atr` is stronger than `strong_confirmation + high_atr`, so stronger confirmation should not be promoted blindly. Outlier diagnostics show high ATR's 60D mean falls from 11.67% to 9.34% after 5-95% trimming, so large winners help but do not fully explain the result. `too_deep` pullbacks also survive new QQQ-relative checks and may be a separate rebound-style hypothesis.
+- Decision: Keep Setup B v1 frozen. Use the new hardening artifacts as required inputs before writing `SETUP_B_V2_PROPOSAL.md`. The leading v2 path is high-ATR Setup B, with a separate decision needed on whether this is a continuation variant, rebound variant, or separate label.
+- Open questions: Is high ATR still strong after sector-neutral testing? Is the `too_deep` pullback branch psychologically and operationally compatible with the core trend-continuation playbook? What transaction-cost/slippage penalty is realistic for high-ATR candidates?
+
 ## 2026-05-10: Market Data Required for MVP
 - Question: Which market data is necessary first?
 - Sources checked: yfinance PyPI, Alpha Vantage docs, Polygon docs, Alpaca docs, SEC EDGAR docs.
@@ -127,3 +162,38 @@ Date format: YYYY-MM-DD
 - Findings: ADRs covered the original architecture and the intraday provider addition, but Setup B evolved into a major research-methodology decision without its own ADR. The detailed findings were documented in the research log and design doc, but the ADR index did not clearly record the accepted Setup B methodology.
 - Decision: Add ADR 0008 for Setup B research methodology and update the decision index.
 - Open questions: Whether a future ADR should decide if Setup A and Setup C stay in the main dashboard or move to a prototype/experimental area.
+
+## 2026-05-13: Dashboard Setup B Focus
+- Question: How should the dashboard be cleaned up so Setup B is not buried under prototypes and diagnostics?
+- Sources checked: Streamlit dashboard code and current design document.
+- Findings: The daily setup tab mixed active Setup B research, Setup A/C prototype rows, candidate chart review, and many expanded diagnostic tables. This made the dashboard harder to scan and made A/C look as mature as Setup B.
+- Decision: Rename the daily setup tab to Setup B Research, show Setup B candidates by default, move Setup A/C behind a prototype toggle, remove A/C score columns from the main daily setup table, and collapse heavier diagnostics by default.
+- Open questions: Whether generic `composite_score` should be hidden or renamed on Setup B-specific views.
+
+## 2026-05-13: Setup B Rule Audit View
+- Question: How can Setup B rules be audited before changing thresholds?
+- Sources checked: Setup B signal code, feature definitions, and dashboard candidate chart flow.
+- Findings: The dashboard showed gate pass/fail status but did not show the raw feature values against the broad and strict thresholds. This made it hard to debug whether the setup rules were admitting the wrong charts or rejecting the right ones.
+- Decision: Add signal-layer Setup B audit helpers that produce gate summaries and condition-level threshold tables, then display them in the Setup B candidate chart workflow.
+- Open questions: Which specific conditions should be revised after chart-by-chart review, and whether any revised definition should become `setup_b_v2`.
+
+## 2026-05-13: Setup B Filter Diagnostics
+- Question: How many rows does each Setup B condition filter out?
+- Sources checked: Setup B signal conditions, CLI research artifact generation, and dashboard diagnostics.
+- Findings: Gate pass/fail on one chart is useful, but it does not show which conditions are generally restrictive across the universe. Because conditions overlap, both independent counts and cumulative funnel counts are needed.
+- Decision: Add `setup_b_filter_diagnostics` artifacts. The independent view counts how many rows pass each condition by itself. The funnel view applies gate groups in order and reports how many rows are removed at each stage.
+- Open questions: Which conditions should be revised after reviewing filter rates and chart quality together.
+
+## 2026-05-13: Setup B Indicator Diagnostics
+- Question: Should richer indicators be added to Setup B?
+- Sources checked: Setup B feature generation, dashboard candidate review flow, and research diagnostics.
+- Findings: SMA and simple momentum are interpretable but may be too blunt to audit trend acceleration, pullback reset, and momentum improvement. RSI, MACD, ADX, ROC acceleration, moving-average slope, and linear-regression slope can provide richer context, but adding them directly to the gate or score would change `setup_b_v1_broad_scanner`.
+- Decision: Add these indicators as feature columns and diagnostics only. They are visible in the dashboard and tested through `setup_b_indicator_diagnostics`, but they do not affect Setup B candidate eligibility or score.
+- Open questions: Whether any indicator slice improves forward returns enough to justify a future `setup_b_v2`.
+
+## 2026-05-14: Setup B v1 Freeze and v2 Transition Plan
+- Question: What must happen before collecting evidence for Setup B v2?
+- Sources checked: Setup B methodology ADR, design document, alpha research notes, and current diagnostics.
+- Findings: Setup B v1 needed a single baseline report and an explicit v2 transition checklist. Without that, it would be too easy to keep changing conditions in place and lose comparability.
+- Decision: Freeze `setup_b_v1_broad_scanner`, add `docs/SETUP_B_V1_RESEARCH_REPORT.md`, and add `docs/SETUP_B_V2_TRANSITION_PLAN.md`. V2 work must start with evidence collection and a proposal, not direct rule edits.
+- Open questions: Whether the first v2 candidate should be an enhanced score or a stricter named variant.

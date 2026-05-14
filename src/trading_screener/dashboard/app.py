@@ -9,6 +9,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from trading_screener.research.setup_eval import add_setup_b_slice_columns_for_dashboard
+from trading_screener.signals.daily_playbook import setup_b_condition_audit, setup_b_gate_audit
 from trading_screener.signals.scoring import FEATURE_WEIGHTS
 
 
@@ -19,10 +20,11 @@ EARNINGS_PATHS = [
 ]
 SETUP_LABELS = {
     "setup_b_trend_pullback": "Setup B - Trend Pullback Continuation",
-    "setup_a_exhaustion": "Setup A - Exhaustion Pullback",
-    "setup_c_failed_bounce": "Setup C - Failed Bounce Reversal",
+    "setup_a_exhaustion": "Prototype A - Exhaustion Pullback",
+    "setup_c_failed_bounce": "Prototype C - Failed Bounce Reversal",
 }
 DAILY_SETUP_LABELS = SETUP_LABELS
+PRIMARY_DAILY_SETUP = "setup_b_trend_pullback"
 
 
 def latest_file(directory: Path, pattern: str) -> Path | None:
@@ -106,6 +108,8 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
             "horizon_days": "Horizon Days",
             "mean_spread": "Mean Spread",
             "median_spread": "Median Spread",
+            "top_bucket_mean": "Top Bucket Avg Return",
+            "benchmark_mean": "Benchmark Avg Return",
             "spread_t_stat": "Spread T-Stat",
             "t_stat_vs_zero": "T-Stat vs Zero",
             "stderr": "Std Error",
@@ -114,6 +118,7 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
             "slice": "Slice",
             "value": "Value",
             "variant": "Variant",
+            "indicator": "Indicator",
             "relative_count": "Benchmark-Relative Observations",
             "relative_mean": "Avg Return vs Benchmark",
             "relative_median": "Median Return vs Benchmark",
@@ -124,11 +129,37 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
             "date_count": "Dates",
             "candidate_count": "Candidates",
             "avg_candidates_per_date": "Avg Candidates/Date",
+            "diagnostic_type": "Diagnostic Type",
+            "rule_set": "Rule Set",
+            "gate": "Gate",
+            "condition": "Condition",
+            "rule": "Rule",
+            "total_count": "Total Rows",
+            "available_count": "Starting Rows",
+            "pass_count": "Passing Rows",
+            "filtered_out_count": "Filtered Out",
+            "unavailable_count": "Unavailable Rows",
+            "pass_rate_of_available": "Pass Rate From Prior Step",
+            "pass_rate_of_total": "Pass Rate Of Total",
+            "step": "Step",
+            "gate_order": "Gate Order",
+            "condition_order": "Condition Order",
             "date_declustered_absolute_mean": "Date-Declustered Avg Return",
             "date_declustered_relative_mean": "Date-Declustered Avg vs Benchmark",
             "date_declustered_relative_median": "Date-Declustered Median vs Benchmark",
             "date_declustered_relative_win_rate": "Date-Declustered Win Rate vs Benchmark",
             "avg_strict_rate": "Avg Strict Match Rate",
+            "trimmed_mean_5_95": "Trimmed Avg Return 5-95%",
+            "top_1pct_mean": "Top 1% Avg Return",
+            "bottom_1pct_mean": "Bottom 1% Avg Return",
+            "top_1pct_return_share": "Top 1% Return Share",
+            "bottom_1pct_return_share": "Bottom 1% Return Share",
+            "yearly_absolute_mean": "Avg Yearly Return",
+            "yearly_relative_mean": "Avg Yearly Return vs Benchmark",
+            "yearly_relative_median": "Median Yearly Return vs Benchmark",
+            "positive_year_rate": "Positive Year Rate",
+            "best_year_relative_mean": "Best Year vs Benchmark",
+            "worst_year_relative_mean": "Worst Year vs Benchmark",
         }
     )
     for column in [
@@ -138,6 +169,8 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
         "Win Rate Spread",
         "Mean Spread",
         "Median Spread",
+        "Top Bucket Avg Return",
+        "Benchmark Avg Return",
         "Std Error",
         "Std Dev",
         "Avg Return vs Benchmark",
@@ -148,10 +181,50 @@ def format_bucket_summary(df: pd.DataFrame) -> pd.DataFrame:
         "Date-Declustered Median vs Benchmark",
         "Date-Declustered Win Rate vs Benchmark",
         "Avg Strict Match Rate",
+        "Pass Rate From Prior Step",
+        "Pass Rate Of Total",
+        "Trimmed Avg Return 5-95%",
+        "Top 1% Avg Return",
+        "Bottom 1% Avg Return",
+        "Top 1% Return Share",
+        "Bottom 1% Return Share",
+        "Avg Yearly Return",
+        "Avg Yearly Return vs Benchmark",
+        "Median Yearly Return vs Benchmark",
+        "Positive Year Rate",
+        "Best Year vs Benchmark",
+        "Worst Year vs Benchmark",
     ]:
         if column in out:
             out[column] = out[column].map(pct)
     return out
+
+
+def summarize_monthly_benchmark_relative(df: pd.DataFrame) -> pd.DataFrame:
+    required = {"benchmark", "horizon_days", "group_type", "group_value", "count", "absolute_mean", "relative_mean"}
+    if df.empty or not required.issubset(df.columns):
+        return pd.DataFrame()
+
+    view = df[(df["group_type"] == "all_setup_b") & (df["group_value"] == "all")].copy()
+    if view.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    for (benchmark, horizon), group in view.groupby(["benchmark", "horizon_days"], dropna=False):
+        observations = float(group["count"].sum())
+        if observations <= 0:
+            continue
+        rows.append(
+            {
+                "benchmark": benchmark,
+                "horizon_days": horizon,
+                "count": int(observations),
+                "absolute_mean": float((group["absolute_mean"] * group["count"]).sum() / observations),
+                "relative_mean": float((group["relative_mean"] * group["count"]).sum() / observations),
+                "relative_win_rate": float((group["relative_mean"] > 0).mean()),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["benchmark", "horizon_days"])
 
 
 def format_intraday(df: pd.DataFrame) -> pd.DataFrame:
@@ -170,8 +243,8 @@ def format_intraday(df: pd.DataFrame) -> pd.DataFrame:
         "best_intraday_setup": "Best Setup",
         "best_intraday_setup_score": "Setup Score",
         "setup_b_trend_pullback_score": "Setup B Score",
-        "setup_a_exhaustion_score": "Setup A Score",
-        "setup_c_failed_bounce_score": "Setup C Score",
+        "setup_a_exhaustion_score": "Prototype A Score",
+        "setup_c_failed_bounce_score": "Prototype C Score",
         "intraday_signal_explanation": "Why It Matched",
         "fwd_return_30m": "30m Fwd Return",
         "fwd_return_60m": "60m Fwd Return",
@@ -202,11 +275,15 @@ def format_daily_setups(df: pd.DataFrame) -> pd.DataFrame:
         "best_daily_setup": "Best Setup",
         "best_daily_setup_score": "Setup Score",
         "daily_setup_b_trend_pullback_score": "Setup B Score",
-        "daily_setup_a_exhaustion_score": "Setup A Score",
-        "daily_setup_c_failed_bounce_score": "Setup C Score",
         "momentum_60d": "60D Momentum",
         "pullback_from_10d_high": "Pullback From 10D High",
         "relative_volume": "Rel Volume",
+        "rsi_14": "RSI 14",
+        "macd_hist": "MACD Hist",
+        "adx_14": "ADX 14",
+        "accel_5_20": "ROC Accel 5/20",
+        "sma20_slope_5d": "20 SMA Slope 5D",
+        "linreg_slope_20d": "LinReg Slope 20D",
         "daily_setup_explanation": "Why It Matched",
         "setup_b_variant": "Setup B Variant",
         "setup_b_variant_reason": "Variant Reason",
@@ -228,9 +305,21 @@ def format_daily_setups(df: pd.DataFrame) -> pd.DataFrame:
     }
     columns = [column for column in rename if column in out.columns]
     out = out[columns].rename(columns=rename)
-    for column in ["60D Momentum", "Pullback From 10D High", "5D Fwd Return", "10D Fwd Return", "20D Fwd Return"]:
+    for column in [
+        "60D Momentum",
+        "Pullback From 10D High",
+        "ROC Accel 5/20",
+        "20 SMA Slope 5D",
+        "LinReg Slope 20D",
+        "5D Fwd Return",
+        "10D Fwd Return",
+        "20D Fwd Return",
+    ]:
         if column in out:
             out[column] = out[column].map(pct)
+    for column in ["RSI 14", "MACD Hist", "ADX 14"]:
+        if column in out:
+            out[column] = out[column].map(num)
     if "Close" in out:
         out["Close"] = out["Close"].map(num)
     for column in [
@@ -248,21 +337,27 @@ def format_daily_setups(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def format_setup_b_gate_panel(row: pd.Series) -> pd.DataFrame:
-    gates = [
-        ("Broad Scanner", "Looser eligibility for trend-pullback candidates; broad enough for research samples", row.get("setup_b_scanner_gate"), row.get("best_daily_setup_score")),
-        ("Strict Match", "Original stricter all-gates version; useful as a high-quality label, not required for broad research", row.get("setup_b_strict_gate"), row.get("best_daily_setup_score")),
-        ("Trend", "Strong 60d trend, above 50/200 SMA, 20 SMA above 50 SMA", row.get("setup_b_trend_gate"), row.get("setup_b_trend_quality")),
-        ("Pullback", "2-6 down days in 7d, 1.5-7% below 10d high, no large red breakdown candles", row.get("setup_b_pullback_gate"), row.get("setup_b_pullback_quality")),
-        ("Volume Dry-Up", "Current and recent pullback volume below prior activity", row.get("setup_b_volume_dryup_gate"), row.get("setup_b_volume_quality")),
-        ("Structure", "Holds 20/50 SMA area, above 50 SMA, 20d momentum not broken", row.get("setup_b_structure_gate"), row.get("setup_b_structure_quality")),
-        ("Confirmation", "Positive close in upper range, reclaim prior high or close above 20 SMA", row.get("setup_b_confirmation_gate"), row.get("setup_b_confirmation_quality")),
+    return setup_b_gate_audit(row)
+
+
+def format_setup_b_indicator_panel(row: pd.Series) -> pd.DataFrame:
+    indicators = [
+        ("RSI 14", "Pullback reset", row.get("rsi_14"), "Neutral/reset zone is often 40-60 after prior strength.", num),
+        ("RSI 3D Change", "Momentum turn", row.get("rsi_14_change_3d"), "Positive means RSI is turning up over the last 3 sessions.", num),
+        ("RSI Reset Zone", "Pullback reset", row.get("rsi_reset_zone"), "True means RSI is 40-60 after being overbought recently.", lambda value: "YES" if bool(value) else "NO"),
+        ("MACD Hist", "Momentum state", row.get("macd_hist"), "Positive is bullish; negative but rising can indicate reset/reversal.", num),
+        ("MACD Hist 3D Change", "Momentum turn", row.get("macd_hist_change_3d"), "Positive means MACD histogram is improving.", num),
+        ("ADX 14", "Trend strength", row.get("adx_14"), "Above 20-25 suggests stronger trend conditions.", num),
+        ("ROC Accel 5/20", "Acceleration", row.get("accel_5_20"), "5D ROC minus 20D ROC scaled to a 5D pace.", pct),
+        ("20 SMA Slope 5D", "Trend slope", row.get("sma20_slope_5d"), "Positive means the 20 SMA is rising over 5 sessions.", pct),
+        ("LinReg Slope 20D", "Trend slope", row.get("linreg_slope_20d"), "Daily regression slope as a percent of price over 20 sessions.", pct),
     ]
     return pd.DataFrame(
         {
-            "Gate": [gate for gate, _, _, _ in gates],
-            "Status": ["PASS" if bool(status) else "FAIL" for _, _, status, _ in gates],
-            "Quality Score": [f"{float(quality or 0):.2f}" for _, _, _, quality in gates],
-            "What It Checks": [description for _, description, _, _ in gates],
+            "Indicator": [name for name, _, _, _, _ in indicators],
+            "Role": [role for _, role, _, _, _ in indicators],
+            "Value": [formatter(value) for _, _, value, _, formatter in indicators],
+            "How To Read": [description for _, _, _, description, _ in indicators],
         }
     )
 
@@ -669,9 +764,52 @@ def render_alpha_tests() -> None:
 
     benchmark, benchmark_path = load_latest(DATA_DIR / "backtests", "benchmark_comparison_*.parquet")
     if benchmark is not None:
-        st.subheader("Benchmark Comparison")
+        st.subheader("Generic Composite Score Benchmark Comparison")
         st.caption(f"File: {benchmark_path}")
-        st.dataframe(benchmark, width="stretch", hide_index=True)
+        st.markdown(
+            """
+            This is the older generic alpha test. It takes the highest bucket from the general composite score,
+            averages those tickers by date, and compares that daily basket return against SPY or QQQ over the
+            same forward window. It is not the Setup B-specific benchmark test.
+            """
+        )
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Column": "Benchmark",
+                        "Meaning": "The comparison asset: SPY or QQQ.",
+                    },
+                    {
+                        "Column": "Horizon Days",
+                        "Meaning": "How many trading days forward the test looks.",
+                    },
+                    {
+                        "Column": "Observations",
+                        "Meaning": "Number of dates where both the top-score basket and benchmark had forward returns.",
+                    },
+                    {
+                        "Column": "Top Bucket Avg Return",
+                        "Meaning": "Average forward return of the highest generic composite-score bucket.",
+                    },
+                    {
+                        "Column": "Benchmark Avg Return",
+                        "Meaning": "Average forward return of SPY or QQQ over the same dates.",
+                    },
+                    {
+                        "Column": "Mean Spread",
+                        "Meaning": "Top Bucket Avg Return minus Benchmark Avg Return.",
+                    },
+                    {
+                        "Column": "Win Rate vs Benchmark",
+                        "Meaning": "Percent of dates where the top bucket beat the benchmark.",
+                    },
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        st.dataframe(format_bucket_summary(benchmark), width="stretch", hide_index=True)
 
     basket, basket_path = load_latest(DATA_DIR / "backtests", "top_ranked_basket_*.parquet")
     if basket is not None:
@@ -689,11 +827,11 @@ def render_alpha_tests() -> None:
 
 
 def render_daily_setups() -> None:
-    st.header("Daily Playbook Setups")
+    st.header("Setup B Research")
     st.markdown(
         """
-        This tab looks for multi-day daily-chart versions of your playbook. It is still rule-based and preliminary,
-        but it is closer to your actual process than the generic composite score.
+        This is the main daily playbook workflow: trend pullback continuation candidates, chart review,
+        and forward-return diagnostics. Setup A and Setup C are kept as prototypes and hidden by default.
         """
     )
     setups, path = load_latest(DATA_DIR / "signals", "daily_setup_candidates_*.parquet")
@@ -705,10 +843,14 @@ def render_daily_setups() -> None:
         return
 
     st.caption(f"File: {path}")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Candidates", len(setups))
-    col2.metric("Tickers", setups["ticker"].nunique() if "ticker" in setups else 0)
-    col3.metric("Max Setup Score", f"{setups['best_daily_setup_score'].max():.2f}")
+    setup_b_total = int((setups["best_daily_setup"] == PRIMARY_DAILY_SETUP).sum()) if "best_daily_setup" in setups else 0
+    prototype_total = int((setups["best_daily_setup"] != PRIMARY_DAILY_SETUP).sum()) if "best_daily_setup" in setups else 0
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Setup B Candidates", f"{setup_b_total:,}")
+    col2.metric("Prototype A/C Rows", f"{prototype_total:,}")
+    col3.metric("Tickers", setups["ticker"].nunique() if "ticker" in setups else 0)
+    setup_b_scores = setups.loc[setups["best_daily_setup"] == PRIMARY_DAILY_SETUP, "best_daily_setup_score"]
+    col4.metric("Max Setup B Score", f"{setup_b_scores.max():.2f}" if not setup_b_scores.empty else "n/a")
 
     forward_columns = [column for column in setups.columns if column.startswith("fwd_return_")]
     if forward_columns:
@@ -739,11 +881,11 @@ def render_daily_setups() -> None:
     min_date = setups["date"].min()
     max_date = setups["date"].max()
     controls = st.columns(5)
-    setup_filter = controls[0].multiselect(
-        "Setup filter",
-        options=sorted(setups["best_daily_setup"].dropna().unique()),
-        format_func=lambda value: DAILY_SETUP_LABELS.get(value, value),
-        key="daily_setup_filter",
+    show_prototypes = controls[0].checkbox(
+        "Show prototype A/C",
+        value=False,
+        help="Setup A and Setup C are experimental labels. Keep this off for the main Setup B workflow.",
+        key="daily_setup_show_prototypes",
     )
     required_horizon = controls[1].selectbox(
         "Require completed forward return",
@@ -782,9 +924,7 @@ def render_daily_setups() -> None:
         key=f"daily_setup_date_range_{quick_range}",
     )
     start_date, end_date = normalize_date_range(date_range, min_date, max_date)
-    shown = setups
-    if setup_filter:
-        shown = shown[shown["best_daily_setup"].isin(setup_filter)]
+    shown = setups if show_prototypes else setups[setups["best_daily_setup"] == PRIMARY_DAILY_SETUP]
     shown = shown[shown["best_daily_setup_score"] >= min_setup_score]
     shown = shown[(shown["date"] >= start_date) & (shown["date"] <= end_date)]
     if required_horizon != "None":
@@ -792,13 +932,16 @@ def render_daily_setups() -> None:
         if column in shown:
             shown = shown[shown[column].notna()]
     st.caption(
-        f"Showing {len(shown):,} candidates from {start_date} to {end_date} after filters. "
+        f"Showing {len(shown):,} {'daily setup' if show_prototypes else 'Setup B'} candidates "
+        f"from {start_date} to {end_date} after filters. "
         "Table displays the first 500 newest rows."
     )
+    if show_prototypes:
+        st.info("Prototype A/C rows are shown for research context only. The active daily research setup is still Setup B.")
     st.dataframe(format_daily_setups(shown.head(500)), width="stretch", hide_index=True)
 
     st.subheader("Setup B Candidate Chart")
-    setup_b = shown[shown["best_daily_setup"] == "setup_b_trend_pullback"].copy()
+    setup_b = shown[shown["best_daily_setup"] == PRIMARY_DAILY_SETUP].copy()
     if setup_b.empty:
         st.info("No Setup B candidates after the current filters. Lower the threshold or widen the date range.")
     else:
@@ -895,7 +1038,24 @@ def render_daily_setups() -> None:
             )
             if selected.get("setup_b_variant"):
                 st.caption(f"Variant: {selected.get('setup_b_variant')} - {selected.get('setup_b_variant_reason', '')}")
+            st.markdown("**Setup B Gate Summary**")
             st.dataframe(format_setup_b_gate_panel(selected), width="stretch", hide_index=True)
+            with st.expander("Momentum / Reset Indicator Diagnostics", expanded=True):
+                st.markdown(
+                    """
+                    These indicators are diagnostic only. They do not admit, reject, or score Setup B v1 candidates.
+                    Use them to judge whether a candidate has trend acceleration, momentum reset, or improving momentum.
+                    """
+                )
+                st.dataframe(format_setup_b_indicator_panel(selected), width="stretch", hide_index=True)
+            with st.expander("Debug Setup B Conditions", expanded=True):
+                st.markdown(
+                    """
+                    This audit shows the raw feature values beside the broad and strict thresholds. Use it to find
+                    which condition is too loose, too strict, or not measuring the chart behavior you expected.
+                    """
+                )
+                st.dataframe(setup_b_condition_audit(selected), width="stretch", hide_index=True)
             history = load_scored_history()
             if history is None:
                 st.info("No scored history file found at `data/features/scored_history.parquet`. Rerun daily mode first.")
@@ -904,12 +1064,85 @@ def render_daily_setups() -> None:
 
     setup_b_buckets, setup_b_bucket_path = load_latest(DATA_DIR / "backtests", "setup_b_score_buckets_*.parquet")
     if setup_b_buckets is not None:
-        with st.expander("Setup B Score Buckets"):
+        with st.expander("Setup B Score Buckets", expanded=True):
             st.caption(f"File: {setup_b_bucket_path}")
             st.markdown(
                 "This checks whether higher-quality Setup B scores had better forward returns than lower-quality Setup B scores."
             )
             st.dataframe(format_bucket_summary(setup_b_buckets), width="stretch", hide_index=True)
+
+    setup_b_filter_diag, setup_b_filter_diag_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_filter_diagnostics_*.parquet"
+    )
+    if setup_b_filter_diag is not None:
+        with st.expander("Setup B Filter Diagnostics", expanded=True):
+            st.caption(f"File: {setup_b_filter_diag_path}")
+            st.markdown(
+                """
+                Independent condition counts show how many rows pass each rule by itself. The cumulative funnel
+                applies gate groups in order, so overlaps are counted only after earlier gates have already passed.
+                """
+            )
+            diag_type = st.selectbox(
+                "Diagnostic view",
+                options=["cumulative_funnel", "independent_condition", "final_gate"],
+                format_func=lambda value: {
+                    "cumulative_funnel": "Cumulative funnel",
+                    "independent_condition": "Independent condition counts",
+                    "final_gate": "Final broad/strict totals",
+                }.get(value, value),
+                key="setup_b_filter_diag_type",
+            )
+            rule_set = st.selectbox(
+                "Rule set",
+                options=sorted(setup_b_filter_diag["rule_set"].dropna().unique()),
+                key="setup_b_filter_diag_rule_set",
+            )
+            filter_view = setup_b_filter_diag[
+                (setup_b_filter_diag["diagnostic_type"] == diag_type)
+                & (setup_b_filter_diag["rule_set"] == rule_set)
+            ].copy()
+            sort_columns = (
+                ["step"]
+                if diag_type == "cumulative_funnel" and "step" in filter_view
+                else [column for column in ["gate_order", "condition_order", "gate", "condition"] if column in filter_view]
+            )
+            filter_view = filter_view.sort_values(sort_columns)
+            hidden_order_columns = [column for column in ["gate_order", "condition_order"] if column in filter_view]
+            st.dataframe(
+                format_bucket_summary(filter_view.drop(columns=hidden_order_columns)),
+                width="stretch",
+                hide_index=True,
+            )
+
+    setup_b_indicator_diag, setup_b_indicator_diag_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_indicator_diagnostics_*.parquet"
+    )
+    if setup_b_indicator_diag is not None:
+        with st.expander("Setup B Indicator Diagnostics", expanded=False):
+            st.caption(f"File: {setup_b_indicator_diag_path}")
+            st.markdown(
+                """
+                These diagnostics test RSI, MACD, ADX, ROC acceleration, and slope features inside existing Setup B
+                candidates. They are not Setup B filters yet.
+                """
+            )
+            indicator = st.selectbox(
+                "Indicator",
+                options=sorted(setup_b_indicator_diag["indicator"].dropna().unique()),
+                key="setup_b_indicator_diag_indicator",
+            )
+            indicator_horizon = st.selectbox(
+                "Indicator horizon",
+                options=sorted(setup_b_indicator_diag["horizon_days"].dropna().unique()),
+                index=1 if len(setup_b_indicator_diag["horizon_days"].dropna().unique()) > 1 else 0,
+                key="setup_b_indicator_diag_horizon",
+            )
+            indicator_view = setup_b_indicator_diag[
+                (setup_b_indicator_diag["indicator"] == indicator)
+                & (setup_b_indicator_diag["horizon_days"] == indicator_horizon)
+            ].sort_values("mean", ascending=False)
+            st.dataframe(format_bucket_summary(indicator_view), width="stretch", hide_index=True)
 
     setup_b_diag, setup_b_diag_path = load_latest(DATA_DIR / "backtests", "setup_b_bucket_diagnostics_*.parquet")
     setup_b_spreads, setup_b_spreads_path = load_latest(DATA_DIR / "backtests", "setup_b_top_bottom_spreads_*.parquet")
@@ -930,7 +1163,7 @@ def render_daily_setups() -> None:
 
     setup_b_slices, setup_b_slices_path = load_latest(DATA_DIR / "backtests", "setup_b_slices_*.parquet")
     if setup_b_slices is not None:
-        with st.expander("Setup B Slice Results", expanded=True):
+        with st.expander("Setup B Slice Results", expanded=False):
             st.caption(f"File: {setup_b_slices_path}")
             st.markdown(
                 """
@@ -956,7 +1189,7 @@ def render_daily_setups() -> None:
         DATA_DIR / "backtests", "setup_b_interaction_slices_*.parquet"
     )
     if setup_b_interactions is not None:
-        with st.expander("Setup B Interaction Slices", expanded=True):
+        with st.expander("Setup B Interaction Slices", expanded=False):
             st.caption(f"File: {setup_b_interactions_path}")
             st.markdown("Interaction slices test two conditions at once, such as market regime plus confirmation quality.")
             interaction_pairs = sorted(setup_b_interactions["interaction_pair"].dropna().unique())
@@ -975,7 +1208,7 @@ def render_daily_setups() -> None:
 
     setup_b_variants, setup_b_variants_path = load_latest(DATA_DIR / "backtests", "setup_b_variants_*.parquet")
     if setup_b_variants is not None:
-        with st.expander("Setup B Variants", expanded=True):
+        with st.expander("Setup B Variants", expanded=False):
             st.caption(f"File: {setup_b_variants_path}")
             st.markdown(
                 """
@@ -1001,7 +1234,7 @@ def render_daily_setups() -> None:
         DATA_DIR / "backtests", "setup_b_market_regime_monthly_*.parquet"
     )
     if setup_b_regime is not None or setup_b_regime_monthly is not None:
-        with st.expander("Setup B Market Regime Diagnostics", expanded=True):
+        with st.expander("Setup B Market Regime Diagnostics", expanded=False):
             st.markdown(
                 """
                 Market regime diagnostics compare Setup B candidates in positive SPY/QQQ conditions versus weak or
@@ -1045,8 +1278,14 @@ def render_daily_setups() -> None:
     setup_b_sector_declustered, setup_b_sector_declustered_path = load_latest(
         DATA_DIR / "backtests", "setup_b_sector_declustered_*.parquet"
     )
+    setup_b_outliers, setup_b_outliers_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_outlier_diagnostics_*.parquet"
+    )
+    setup_b_consistency, setup_b_consistency_path = load_latest(
+        DATA_DIR / "backtests", "setup_b_time_consistency_*.parquet"
+    )
     if setup_b_relative_monthly is not None or setup_b_date_declustered is not None:
-        with st.expander("Setup B Benchmark/Declustering Diagnostics", expanded=True):
+        with st.expander("Setup B Benchmark/Declustering Diagnostics", expanded=False):
             st.markdown(
                 """
                 These diagnostics test whether Setup B groups still look useful after comparing to SPY/QQQ and
@@ -1081,6 +1320,39 @@ def render_daily_setups() -> None:
                 st.dataframe(format_bucket_summary(decluster_view), width="stretch", hide_index=True)
             if setup_b_relative_monthly is not None:
                 st.caption(f"Monthly benchmark-relative file: {setup_b_relative_monthly_path}")
+                st.markdown("**How to read benchmark-relative columns**")
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "Column": "Benchmark",
+                                "Meaning": "The comparison asset, usually SPY or QQQ.",
+                            },
+                            {
+                                "Column": "Horizon Days",
+                                "Meaning": "How many trading days forward the test looks.",
+                            },
+                            {
+                                "Column": "Avg Forward Return",
+                                "Meaning": "Average raw return after the Setup B signal.",
+                            },
+                            {
+                                "Column": "Avg Return vs Benchmark",
+                                "Meaning": "Average Setup B return minus benchmark return over the same dates.",
+                            },
+                            {
+                                "Column": "Win Rate vs Benchmark",
+                                "Meaning": "Percent of rows or months where Setup B beat the benchmark.",
+                            },
+                        ]
+                    ),
+                    width="stretch",
+                    hide_index=True,
+                )
+                monthly_summary = summarize_monthly_benchmark_relative(setup_b_relative_monthly)
+                if not monthly_summary.empty:
+                    st.markdown("**Aggregate benchmark-relative summary: all Setup B candidates**")
+                    st.dataframe(format_bucket_summary(monthly_summary), width="stretch", hide_index=True)
                 monthly_cols = st.columns(4)
                 monthly_benchmark = monthly_cols[0].selectbox(
                     "Monthly benchmark",
@@ -1118,8 +1390,82 @@ def render_daily_setups() -> None:
             if setup_b_sector_declustered is not None:
                 st.caption(f"Sector de-clustered file: {setup_b_sector_declustered_path}")
                 st.dataframe(setup_b_sector_declustered, width="stretch", hide_index=True)
+            if setup_b_outliers is not None:
+                st.caption(f"Outlier diagnostics file: {setup_b_outliers_path}")
+                st.markdown(
+                    """
+                    Outlier diagnostics check whether a slice's mean return is driven by a few very large winners
+                    or losers. Compare the raw average with the 5-95% trimmed average and the top 1% return share.
+                    """
+                )
+                outlier_cols = st.columns(3)
+                outlier_group = outlier_cols[0].selectbox(
+                    "Outlier group",
+                    options=sorted(setup_b_outliers["group_type"].dropna().unique()),
+                    key="setup_b_outlier_group",
+                )
+                outlier_horizon = outlier_cols[1].selectbox(
+                    "Outlier horizon",
+                    options=sorted(setup_b_outliers["horizon_days"].dropna().unique()),
+                    index=3 if len(setup_b_outliers["horizon_days"].dropna().unique()) > 3 else 0,
+                    key="setup_b_outlier_horizon",
+                )
+                min_outlier_count = outlier_cols[2].number_input(
+                    "Min observations",
+                    min_value=0,
+                    max_value=1000000,
+                    value=1000,
+                    step=500,
+                    key="setup_b_outlier_min_count",
+                )
+                outlier_view = setup_b_outliers[
+                    (setup_b_outliers["group_type"] == outlier_group)
+                    & (setup_b_outliers["horizon_days"] == outlier_horizon)
+                    & (setup_b_outliers["count"] >= min_outlier_count)
+                ].sort_values("mean", ascending=False)
+                st.dataframe(format_bucket_summary(outlier_view), width="stretch", hide_index=True)
+            if setup_b_consistency is not None:
+                st.caption(f"Time consistency file: {setup_b_consistency_path}")
+                st.markdown(
+                    """
+                    Time consistency checks whether a slice beats SPY/QQQ across years, rather than only in one
+                    strong period. Higher positive-year rate is more robust than one high average.
+                    """
+                )
+                consistency_cols = st.columns(4)
+                consistency_benchmark = consistency_cols[0].selectbox(
+                    "Consistency benchmark",
+                    options=sorted(setup_b_consistency["benchmark"].dropna().unique()),
+                    key="setup_b_consistency_benchmark",
+                )
+                consistency_horizon = consistency_cols[1].selectbox(
+                    "Consistency horizon",
+                    options=sorted(setup_b_consistency["horizon_days"].dropna().unique()),
+                    index=3 if len(setup_b_consistency["horizon_days"].dropna().unique()) > 3 else 0,
+                    key="setup_b_consistency_horizon",
+                )
+                consistency_group = consistency_cols[2].selectbox(
+                    "Consistency group",
+                    options=sorted(setup_b_consistency["group_type"].dropna().unique()),
+                    key="setup_b_consistency_group",
+                )
+                min_years = consistency_cols[3].number_input(
+                    "Min years",
+                    min_value=1,
+                    max_value=100,
+                    value=5,
+                    step=1,
+                    key="setup_b_consistency_min_years",
+                )
+                consistency_view = setup_b_consistency[
+                    (setup_b_consistency["benchmark"] == consistency_benchmark)
+                    & (setup_b_consistency["horizon_days"] == consistency_horizon)
+                    & (setup_b_consistency["group_type"] == consistency_group)
+                    & (setup_b_consistency["years"] >= min_years)
+                ].sort_values(["positive_year_rate", "yearly_relative_mean"], ascending=False)
+                st.dataframe(format_bucket_summary(consistency_view), width="stretch", hide_index=True)
 
-    with st.expander("How daily setup scores work"):
+    with st.expander("How Setup B v1 works"):
         st.markdown(
             """
             **Setup B - Trend Pullback Continuation**
@@ -1127,12 +1473,23 @@ def render_daily_setups() -> None:
             Strong 60-day trend, above 50/200 SMA, controlled pullback from recent high, holds 20/50 SMA area,
             volume dries up, and momentum resets without full breakdown.
 
-            **Setup A - Exhaustion Pullback**
+            The broad scanner creates the research sample. The strict match and gate table show whether the cleaner
+            discretionary version passed. The Setup B score ranks broad candidates for bucket testing.
+            """
+        )
+
+    with st.expander("Prototype setup labels"):
+        st.markdown(
+            """
+            Setup A and Setup C are retained as prototype labels only. They are hidden by default so the daily
+            dashboard stays focused on Setup B.
+
+            **Prototype A - Exhaustion Pullback**
 
             Extended 5-day or 20-day run, stretched above 20 SMA, high relative volume, failed gap/strength,
             and downside reversal.
 
-            **Setup C - Failed Bounce Reversal**
+            **Prototype C - Failed Bounce Reversal**
 
             Weak structure below 20/50 SMA, recent bounce attempt, failed reclaim, downside volume, and not near
             52-week highs.
@@ -1141,11 +1498,11 @@ def render_daily_setups() -> None:
 
 
 def render_intraday() -> None:
-    st.header("Intraday Setup Candidates")
+    st.header("Intraday Prototypes")
     st.markdown(
         """
-        This table is your playbook scanner. Each row is a 1-minute moment that scored highly for Setup A, B, or C.
-        The forward returns are shown for research only: they answer what happened after the candidate appeared.
+        This is an experimental intraday research layer. Each row is a 1-minute prototype candidate. Keep this
+        separate from the main daily Setup B workflow until intraday data coverage and rules are stable.
         """
     )
     intraday, path = load_latest(DATA_DIR / "signals", "intraday_setup_candidates_*.parquet", recursive=True)
@@ -1180,11 +1537,11 @@ def render_intraday() -> None:
 
             Price above VWAP, price above 20 EMA, VWAP reclaim, volume spike, and price near VWAP/EMA.
 
-            **Setup A - Exhaustion Pullback**
+            **Prototype A - Exhaustion Pullback**
 
             Large recent intraday range, volume spike, VWAP loss, and sharp 1-minute downside move.
 
-            **Setup C - Failed Bounce Reversal**
+            **Prototype C - Failed Bounce Reversal**
 
             Price below VWAP, price below 20 EMA, VWAP loss, volume spike, and negative 1-minute return.
 
@@ -1199,7 +1556,7 @@ st.title("Finding Alpha Research Dashboard")
 st.caption("Research-only screener and alpha-testing dashboard. No broker connection, no order placement.")
 
 overview_tab, daily_tab, daily_setup_tab, alpha_tab, intraday_tab = st.tabs(
-    ["Overview", "Daily Screener", "Daily Setups", "Alpha Tests", "Intraday Setups"]
+    ["Overview", "Daily Screener", "Setup B Research", "Alpha Tests", "Intraday Prototypes"]
 )
 with overview_tab:
     render_overview()

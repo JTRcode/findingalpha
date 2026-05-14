@@ -33,6 +33,12 @@ def test_add_technical_features_calculates_expected_columns() -> None:
     assert "momentum_20d" in features.columns
     assert "relative_volume" in features.columns
     assert "atr_pct" in features.columns
+    assert "rsi_14" in features.columns
+    assert "macd_hist" in features.columns
+    assert "adx_14" in features.columns
+    assert "accel_5_20" in features.columns
+    assert "sma20_slope_5d" in features.columns
+    assert "linreg_slope_20d" in features.columns
     assert last["momentum_20d"] > 0
     assert last["proximity_52w_high"] == 1
-
+    assert last["accel_5_20"] == last["roc_5d"] - (last["roc_20d"] / 4)

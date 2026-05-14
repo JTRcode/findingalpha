@@ -5,6 +5,7 @@ import math
 import pandas as pd
 
 from trading_screener.research.forward_returns import HORIZONS, add_forward_returns
+from trading_screener.signals.daily_playbook import setup_b_condition_definitions, setup_b_gate_masks
 
 
 def evaluate_daily_setups(scored_history: pd.DataFrame, min_score: float = 0.65) -> pd.DataFrame:
@@ -46,6 +47,133 @@ def evaluate_setup_b_score_buckets(scored_history: pd.DataFrame, buckets: int = 
         summary["win_rate"] = grouped.apply(lambda s: (s > 0).mean()).to_numpy()
         summary["horizon_days"] = horizon
         rows.extend(summary.rename(columns={"setup_b_quality_bucket": "bucket"}).to_dict("records"))
+    return pd.DataFrame(rows)
+
+
+def evaluate_setup_b_filter_diagnostics(scored_history: pd.DataFrame) -> pd.DataFrame:
+    df = scored_history.copy()
+    total_count = len(df)
+    rows: list[dict[str, object]] = []
+
+    for definition in setup_b_condition_definitions(df):
+        source_columns = str(definition["source_columns"]).split(",")
+        available_mask = df[[column for column in source_columns if column in df.columns]].notna().all(axis=1)
+        available_count = int(available_mask.sum())
+        for rule_set, rule_column, mask_column in [
+            ("broad", "broad_rule", "broad_mask"),
+            ("strict", "strict_rule", "strict_mask"),
+        ]:
+            mask = definition[mask_column].reindex(df.index).fillna(False).astype(bool)
+            pass_count = int((mask & available_mask).sum())
+            rows.append(
+                {
+                    "diagnostic_type": "independent_condition",
+                    "rule_set": rule_set,
+                    "gate_order": definition["gate_order"],
+                    "condition_order": definition["condition_order"],
+                    "gate": definition["gate"],
+                    "condition": definition["condition"],
+                    "rule": definition[rule_column],
+                    "total_count": total_count,
+                    "available_count": available_count,
+                    "pass_count": pass_count,
+                    "filtered_out_count": int(available_count - pass_count),
+                    "unavailable_count": int(total_count - available_count),
+                    "pass_rate_of_available": pass_count / available_count if available_count else 0.0,
+                    "pass_rate_of_total": pass_count / total_count if total_count else 0.0,
+                }
+            )
+
+    for rule_set in ["broad", "strict"]:
+        cumulative = pd.Series(True, index=df.index)
+        previous_count = int(cumulative.sum())
+        for step, (gate, mask) in enumerate(setup_b_gate_masks(df, rule_set=rule_set), start=1):
+            cumulative = cumulative & mask.reindex(df.index).fillna(False).astype(bool)
+            pass_count = int(cumulative.sum())
+            rows.append(
+                {
+                    "diagnostic_type": "cumulative_funnel",
+                    "rule_set": rule_set,
+                    "step": step,
+                    "gate_order": step,
+                    "condition_order": step,
+                    "gate": gate,
+                    "condition": f"{gate} gate",
+                    "rule": "all gate conditions pass",
+                    "total_count": total_count,
+                    "available_count": previous_count,
+                    "pass_count": pass_count,
+                    "filtered_out_count": int(previous_count - pass_count),
+                    "unavailable_count": 0,
+                    "pass_rate_of_available": pass_count / previous_count if previous_count else 0.0,
+                    "pass_rate_of_total": pass_count / total_count if total_count else 0.0,
+                }
+            )
+            previous_count = pass_count
+
+    for rule_set, column in [("broad", "setup_b_scanner_gate"), ("strict", "setup_b_strict_gate")]:
+        if column not in df:
+            continue
+        pass_count = int(df[column].fillna(False).astype(bool).sum())
+        rows.append(
+            {
+                "diagnostic_type": "final_gate",
+                "rule_set": rule_set,
+                "gate_order": 99,
+                "condition_order": 99,
+                "gate": "All",
+                "condition": f"Final {rule_set} Setup B gate",
+                "rule": "all gate groups pass",
+                "total_count": total_count,
+                "available_count": total_count,
+                "pass_count": pass_count,
+                "filtered_out_count": int(total_count - pass_count),
+                "unavailable_count": 0,
+                "pass_rate_of_available": pass_count / total_count if total_count else 0.0,
+                "pass_rate_of_total": pass_count / total_count if total_count else 0.0,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def evaluate_setup_b_indicator_diagnostics(scored_history: pd.DataFrame) -> pd.DataFrame:
+    df = _setup_b_bucket_frame(add_forward_returns(scored_history))
+    if df.empty:
+        return pd.DataFrame()
+    df = _add_setup_b_indicator_slices(df)
+
+    slice_columns = [
+        "rsi_reset_slice",
+        "rsi_level_slice",
+        "macd_hist_slice",
+        "macd_hist_change_slice",
+        "adx_trend_slice",
+        "roc_accel_slice",
+        "sma20_slope_slice",
+        "linreg_slope_slice",
+    ]
+    rows: list[dict[str, object]] = []
+    for slice_column in slice_columns:
+        if slice_column not in df:
+            continue
+        for slice_value, group in df.dropna(subset=[slice_column]).groupby(slice_column, observed=True):
+            for horizon in HORIZONS:
+                column = f"fwd_return_{horizon}d"
+                valid = group[column].dropna()
+                if valid.empty:
+                    continue
+                rows.append(
+                    {
+                        "indicator": slice_column,
+                        "value": str(slice_value),
+                        "horizon_days": horizon,
+                        "count": int(valid.count()),
+                        "mean": float(valid.mean()),
+                        "median": float(valid.median()),
+                        "win_rate": float((valid > 0).mean()),
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -251,13 +379,7 @@ def evaluate_setup_b_benchmark_relative_monthly(
     df["month"] = pd.to_datetime(df["date"]).dt.to_period("M").astype(str)
 
     rows: list[dict[str, object]] = []
-    group_specs = [
-        ("all_setup_b", None),
-        ("score_bucket", "setup_b_quality_bucket"),
-        ("atr_slice", "atr_slice"),
-        ("trend_strength_slice", "trend_strength_slice"),
-        ("variant", "setup_b_variant"),
-    ]
+    group_specs = _setup_b_benchmark_group_specs()
     for benchmark in benchmark_tickers:
         benchmark_key = benchmark.lower()
         for horizon in HORIZONS:
@@ -305,12 +427,7 @@ def evaluate_setup_b_date_declustering(
         return pd.DataFrame()
 
     rows: list[dict[str, object]] = []
-    group_specs = [
-        ("score_bucket", "setup_b_quality_bucket"),
-        ("atr_slice", "atr_slice"),
-        ("trend_strength_slice", "trend_strength_slice"),
-        ("variant", "setup_b_variant"),
-    ]
+    group_specs = [spec for spec in _setup_b_benchmark_group_specs() if spec[1] is not None]
     for benchmark in benchmark_tickers:
         benchmark_key = benchmark.lower()
         for horizon in HORIZONS:
@@ -350,6 +467,93 @@ def evaluate_setup_b_date_declustering(
                             "date_declustered_relative_median": float(relative.median()),
                             "date_declustered_relative_win_rate": float((relative > 0).mean()),
                             "avg_strict_rate": float(group["strict_rate"].mean()),
+                        }
+                    )
+    return pd.DataFrame(rows)
+
+
+def evaluate_setup_b_outlier_diagnostics(scored_history: pd.DataFrame) -> pd.DataFrame:
+    df = _setup_b_analysis_frame(scored_history)
+    if df.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    group_specs = [spec for spec in _setup_b_benchmark_group_specs() if spec[1] is not None]
+    for group_type, group_column in group_specs:
+        if group_column not in df:
+            continue
+        valid_group = df.dropna(subset=[group_column])
+        for group_value, group in valid_group.groupby(group_column, observed=True):
+            for horizon in HORIZONS:
+                column = f"fwd_return_{horizon}d"
+                if column not in group:
+                    continue
+                returns = group[column].dropna()
+                if returns.empty:
+                    continue
+                rows.append(
+                    {
+                        "group_type": group_type,
+                        "group_value": str(group_value),
+                        "horizon_days": horizon,
+                        **_return_distribution_summary(returns),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def evaluate_setup_b_time_consistency(
+    scored_history: pd.DataFrame,
+    benchmark_tickers: tuple[str, ...] = ("SPY", "QQQ"),
+) -> pd.DataFrame:
+    df = _setup_b_analysis_frame(scored_history, benchmark_tickers=benchmark_tickers)
+    if df.empty:
+        return pd.DataFrame()
+    df["year"] = pd.to_datetime(df["date"]).dt.year
+
+    rows: list[dict[str, object]] = []
+    group_specs = [spec for spec in _setup_b_benchmark_group_specs() if spec[1] is not None]
+    for benchmark in benchmark_tickers:
+        benchmark_key = benchmark.lower()
+        for horizon in HORIZONS:
+            relative_column = f"rel_fwd_return_{horizon}d_vs_{benchmark_key}"
+            absolute_column = f"fwd_return_{horizon}d"
+            if relative_column not in df or absolute_column not in df:
+                continue
+            for group_type, group_column in group_specs:
+                if group_column not in df:
+                    continue
+                valid = df.dropna(subset=[group_column, relative_column, absolute_column])
+                if valid.empty:
+                    continue
+                yearly = (
+                    valid.groupby(["year", group_column], observed=True)
+                    .agg(
+                        count=(relative_column, "count"),
+                        absolute_mean=(absolute_column, "mean"),
+                        relative_mean=(relative_column, "mean"),
+                    )
+                    .reset_index()
+                )
+                for group_value, group in yearly.groupby(group_column, observed=True):
+                    relative = group["relative_mean"].dropna()
+                    if relative.empty:
+                        continue
+                    rows.append(
+                        {
+                            "benchmark": benchmark,
+                            "horizon_days": horizon,
+                            "group_type": group_type,
+                            "group_value": str(group_value),
+                            "years": int(relative.count()),
+                            "candidate_count": int(group["count"].sum()),
+                            "avg_yearly_count": float(group["count"].mean()),
+                            "yearly_absolute_mean": float(group["absolute_mean"].mean()),
+                            "yearly_relative_mean": float(relative.mean()),
+                            "yearly_relative_median": float(relative.median()),
+                            "positive_year_rate": float((relative > 0).mean()),
+                            "best_year_relative_mean": float(relative.max()),
+                            "worst_year_relative_mean": float(relative.min()),
                         }
                     )
     return pd.DataFrame(rows)
@@ -479,6 +683,77 @@ def _add_setup_b_slice_columns(df: pd.DataFrame, benchmark_source: pd.DataFrame 
         labels=["low_atr", "medium_atr", "high_atr"],
         include_lowest=True,
     )
+    out = _add_setup_b_interaction_columns(out)
+    return out
+
+
+def _add_setup_b_interaction_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    interactions = [
+        ("market_regime", "confirmation_quality_slice", "market_regime_x_confirmation_quality_slice"),
+        ("market_regime", "atr_slice", "market_regime_x_atr_slice"),
+        ("confirmation_quality_slice", "atr_slice", "confirmation_quality_slice_x_atr_slice"),
+        ("confirmation_quality_slice", "pullback_depth_slice", "confirmation_quality_slice_x_pullback_depth_slice"),
+        ("pullback_depth_slice", "pullback_duration_slice", "pullback_depth_slice_x_pullback_duration_slice"),
+        ("volume_dryup_slice", "confirmation_quality_slice", "volume_dryup_slice_x_confirmation_quality_slice"),
+    ]
+    for first, second, output_column in interactions:
+        if first not in out or second not in out:
+            continue
+        valid = out[first].notna() & out[second].notna()
+        out[output_column] = pd.NA
+        out.loc[valid, output_column] = out.loc[valid, first].astype(str) + " + " + out.loc[valid, second].astype(str)
+    return out
+
+
+def _add_setup_b_indicator_slices(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "rsi_reset_zone" in out:
+        out["rsi_reset_slice"] = out["rsi_reset_zone"].map({True: "rsi_reset", False: "no_rsi_reset"})
+    if "rsi_14" in out:
+        out["rsi_level_slice"] = pd.cut(
+            out["rsi_14"],
+            bins=[0, 40, 50, 60, 70, 100],
+            labels=["rsi_below_40", "rsi_40_50", "rsi_50_60", "rsi_60_70", "rsi_above_70"],
+            include_lowest=True,
+        )
+    if "macd_hist" in out:
+        out["macd_hist_slice"] = pd.cut(
+            out["macd_hist"],
+            bins=[-float("inf"), 0, float("inf")],
+            labels=["macd_hist_negative", "macd_hist_positive"],
+        )
+    if "macd_hist_change_3d" in out:
+        out["macd_hist_change_slice"] = pd.cut(
+            out["macd_hist_change_3d"],
+            bins=[-float("inf"), 0, float("inf")],
+            labels=["macd_hist_falling", "macd_hist_rising"],
+        )
+    if "adx_14" in out:
+        out["adx_trend_slice"] = pd.cut(
+            out["adx_14"],
+            bins=[0, 20, 25, 100],
+            labels=["adx_weak", "adx_developing", "adx_strong"],
+            include_lowest=True,
+        )
+    if "accel_5_20" in out:
+        out["roc_accel_slice"] = pd.cut(
+            out["accel_5_20"],
+            bins=[-float("inf"), -0.01, 0.01, float("inf")],
+            labels=["negative_accel", "flat_accel", "positive_accel"],
+        )
+    if "sma20_slope_5d" in out:
+        out["sma20_slope_slice"] = pd.cut(
+            out["sma20_slope_5d"],
+            bins=[-float("inf"), -0.005, 0.005, float("inf")],
+            labels=["sma20_slope_down", "sma20_slope_flat", "sma20_slope_up"],
+        )
+    if "linreg_slope_20d" in out:
+        out["linreg_slope_slice"] = pd.cut(
+            out["linreg_slope_20d"],
+            bins=[-float("inf"), -0.0005, 0.0005, float("inf")],
+            labels=["linreg_slope_down", "linreg_slope_flat", "linreg_slope_up"],
+        )
     return out
 
 
@@ -499,6 +774,25 @@ def _setup_b_analysis_frame(
     for benchmark_ticker in benchmark_tickers[1:]:
         df = _add_benchmark_relative_forward_returns(df, full_history, benchmark_ticker)
     return df
+
+
+def _setup_b_benchmark_group_specs() -> list[tuple[str, str | None]]:
+    return [
+        ("all_setup_b", None),
+        ("score_bucket", "setup_b_quality_bucket"),
+        ("atr_slice", "atr_slice"),
+        ("trend_strength_slice", "trend_strength_slice"),
+        ("pullback_depth_slice", "pullback_depth_slice"),
+        ("pullback_duration_slice", "pullback_duration_slice"),
+        ("volume_dryup_slice", "volume_dryup_slice"),
+        ("confirmation_quality_slice", "confirmation_quality_slice"),
+        ("variant", "setup_b_variant"),
+        ("market_regime_x_atr_slice", "market_regime_x_atr_slice"),
+        ("confirmation_quality_slice_x_atr_slice", "confirmation_quality_slice_x_atr_slice"),
+        ("confirmation_quality_slice_x_pullback_depth_slice", "confirmation_quality_slice_x_pullback_depth_slice"),
+        ("pullback_depth_slice_x_pullback_duration_slice", "pullback_depth_slice_x_pullback_duration_slice"),
+        ("volume_dryup_slice_x_confirmation_quality_slice", "volume_dryup_slice_x_confirmation_quality_slice"),
+    ]
 
 
 def _setup_b_bucket_frame(scored_history: pd.DataFrame, buckets: int = 5) -> pd.DataFrame:
@@ -528,6 +822,20 @@ def _setup_b_bucket_frame(scored_history: pd.DataFrame, buckets: int = 5) -> pd.
         "setup_b_trend_quality",
         "setup_b_confirmation_quality",
         "atr_pct",
+        "rsi_14",
+        "rsi_14_change_3d",
+        "rsi_reset_zone",
+        "macd_hist",
+        "macd_hist_change_3d",
+        "macd_hist_turning_up",
+        "adx_14",
+        "roc_5d",
+        "roc_10d",
+        "roc_20d",
+        "accel_5_20",
+        "sma20_slope_5d",
+        "sma50_slope_10d",
+        "linreg_slope_20d",
         *[f"fwd_return_{horizon}d" for horizon in HORIZONS],
     ]
     setup_b = setup_b[[column for column in required_columns if column in setup_b.columns]].copy()
@@ -541,6 +849,36 @@ def _independent_spread_stderr(top: pd.Series, bottom: pd.Series) -> float:
     if len(top) < 2 or len(bottom) < 2:
         return 0.0
     return math.sqrt((top.var(ddof=1) / len(top)) + (bottom.var(ddof=1) / len(bottom)))
+
+
+def _return_distribution_summary(returns: pd.Series) -> dict[str, object]:
+    ordered = returns.sort_values()
+    count = int(ordered.count())
+    tail_count = max(1, math.ceil(count * 0.01))
+    top_tail = ordered.tail(tail_count)
+    bottom_tail = ordered.head(tail_count)
+    total_return = float(ordered.sum())
+    top_tail_sum = float(top_tail.sum())
+    bottom_tail_sum = float(bottom_tail.sum())
+    trimmed = ordered[
+        (ordered >= ordered.quantile(0.05))
+        & (ordered <= ordered.quantile(0.95))
+    ]
+    return {
+        "count": count,
+        "mean": float(ordered.mean()),
+        "median": float(ordered.median()),
+        "win_rate": float((ordered > 0).mean()),
+        "trimmed_mean_5_95": float(trimmed.mean()) if not trimmed.empty else float("nan"),
+        "p01": float(ordered.quantile(0.01)),
+        "p05": float(ordered.quantile(0.05)),
+        "p95": float(ordered.quantile(0.95)),
+        "p99": float(ordered.quantile(0.99)),
+        "top_1pct_mean": float(top_tail.mean()),
+        "bottom_1pct_mean": float(bottom_tail.mean()),
+        "top_1pct_return_share": top_tail_sum / total_return if total_return else 0.0,
+        "bottom_1pct_return_share": bottom_tail_sum / total_return if total_return else 0.0,
+    }
 
 
 def _add_benchmark_relative_forward_returns(

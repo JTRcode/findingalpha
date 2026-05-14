@@ -152,14 +152,31 @@ Buy strong pullbacks, avoid chop, and verify whether higher-quality pullback can
 Current version:
 - `setup_b_v1_broad_scanner`
 
+Status:
+- frozen baseline for research comparison
+- documented in `docs/SETUP_B_V1_RESEARCH_REPORT.md`
+- v2 transition process documented in `docs/SETUP_B_V2_TRANSITION_PLAN.md`
+
 Structure:
 - broad scanner gate: creates a research sample
 - strict gate: original higher-quality all-gates match
 - individual gates: trend, pullback, volume dry-up, structure, confirmation
 - continuous quality score: ranks eligible broad candidates
 - slices and variants: diagnostics only
+- audit tables: show raw feature values beside broad and strict thresholds for chart-by-chart debugging
+- filter diagnostics: show independent condition pass rates and cumulative gate funnels across the universe
+- indicator diagnostics: RSI, MACD, ADX, ROC acceleration, moving-average slope, and regression slope are feature diagnostics only
 
-Do not keep changing Setup B thresholds in place. If a revised definition is needed, create `setup_b_v2_*`, document what changed, and keep old snapshots interpretable.
+Do not keep changing Setup B thresholds in place. If a revised definition is needed, create `setup_b_v2_*`, document what changed, and keep old snapshots interpretable. Before implementing v2, follow `docs/SETUP_B_V2_TRANSITION_PLAN.md`.
+
+## Prototype Setups
+Setup A and Setup C are prototype labels only. They may remain in generated artifacts for future research, but the dashboard should not present them as equal to the active Setup B workflow.
+
+Dashboard rule:
+- Setup B is the default daily research view.
+- Setup A/C rows should be hidden by default or grouped under prototype wording.
+- Prototype setup scores should not clutter the main Setup B candidate table.
+- Intraday setup work is also prototype status until intraday data coverage and rule definitions are stable.
 
 ## Change Control
 Before adding or changing a feature, answer:
@@ -201,7 +218,6 @@ When implementation changes the design:
 - update `README.md` when user-facing commands or workflows change
 
 ## Current Open Design Questions
-- Should Setup A and Setup C remain prototypes, or be removed from the main dashboard until Setup B is settled?
 - Should the dashboard hide generic `composite_score` on Setup B-specific pages?
 - Should heavy diagnostics become opt-in for large universes?
 - Should sector metadata be added for sector-neutral tests?

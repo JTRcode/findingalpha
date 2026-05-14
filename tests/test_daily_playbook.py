@@ -7,15 +7,24 @@ from trading_screener.research.setup_eval import (
     evaluate_setup_b_benchmark_relative_monthly,
     evaluate_setup_b_bucket_diagnostics,
     evaluate_setup_b_date_declustering,
+    evaluate_setup_b_filter_diagnostics,
+    evaluate_setup_b_indicator_diagnostics,
     evaluate_setup_b_interaction_slices,
     evaluate_setup_b_market_regime_diagnostics,
+    evaluate_setup_b_outlier_diagnostics,
     evaluate_setup_b_score_buckets,
     evaluate_setup_b_sector_declustering,
     evaluate_setup_b_slices,
+    evaluate_setup_b_time_consistency,
     evaluate_setup_b_variants,
     interpret_setup_b_spread,
 )
-from trading_screener.signals.daily_playbook import add_daily_playbook_scores, daily_setup_candidates
+from trading_screener.signals.daily_playbook import (
+    add_daily_playbook_scores,
+    daily_setup_candidates,
+    setup_b_condition_audit,
+    setup_b_gate_audit,
+)
 from trading_screener.signals.scoring import add_composite_score
 
 
@@ -65,11 +74,49 @@ def test_default_daily_setup_candidates_are_more_selective_than_loose_threshold(
     assert len(default) <= len(loose)
 
 
+def test_setup_b_audit_helpers_return_debug_tables() -> None:
+    scored = add_daily_playbook_scores(add_composite_score(add_technical_features(sample_bars(days=260))))
+    row = scored.iloc[-1]
+    gate_audit = setup_b_gate_audit(row)
+    condition_audit = setup_b_condition_audit(row)
+
+    assert {"Gate", "Role", "Status", "Quality Score", "What It Checks"}.issubset(gate_audit.columns)
+    assert {"Gate", "Condition", "Value", "Broad Rule", "Broad Pass", "Strict Rule", "Strict Pass"}.issubset(
+        condition_audit.columns
+    )
+    assert "Trend" in set(condition_audit["Gate"])
+    assert "Pullback" in set(condition_audit["Gate"])
+
+
 def test_setup_b_bucket_eval_returns_dataframe() -> None:
     scored = add_daily_playbook_scores(add_composite_score(add_technical_features(sample_bars(days=260))))
     summary = evaluate_setup_b_score_buckets(scored)
 
     assert hasattr(summary, "columns")
+
+
+def test_setup_b_filter_diagnostics_counts_conditions_and_funnel() -> None:
+    scored = add_daily_playbook_scores(add_composite_score(add_technical_features(sample_bars(days=260))))
+    diagnostics = evaluate_setup_b_filter_diagnostics(scored)
+
+    assert {"diagnostic_type", "rule_set", "gate", "condition", "pass_count", "filtered_out_count"}.issubset(
+        diagnostics.columns
+    )
+    assert {"independent_condition", "cumulative_funnel", "final_gate"}.issubset(
+        set(diagnostics["diagnostic_type"])
+    )
+    assert {"broad", "strict"}.issubset(set(diagnostics["rule_set"]))
+
+
+def test_setup_b_indicator_diagnostics_returns_dataframe() -> None:
+    scored = add_daily_playbook_scores(add_composite_score(add_technical_features(sample_bars(days=260))))
+    diagnostics = evaluate_setup_b_indicator_diagnostics(scored)
+
+    assert hasattr(diagnostics, "columns")
+    if not diagnostics.empty:
+        assert {"indicator", "value", "horizon_days", "count", "mean", "median", "win_rate"}.issubset(
+            diagnostics.columns
+        )
 
 
 def test_setup_b_bucket_diagnostics_returns_dataframes() -> None:
@@ -136,6 +183,23 @@ def test_setup_b_declustering_diagnostics_return_dataframes() -> None:
     assert hasattr(sector_declustered, "columns")
     if not sector_declustered.empty:
         assert "status" in sector_declustered.columns
+
+
+def test_setup_b_hardening_diagnostics_return_dataframes() -> None:
+    scored = add_daily_playbook_scores(add_composite_score(add_technical_features(sample_bars(days=260))))
+    scored_with_benchmarks = scored.copy()
+    scored_with_benchmarks.loc[scored_with_benchmarks["ticker"] == "AAA", "ticker"] = "SPY"
+    outliers = evaluate_setup_b_outlier_diagnostics(scored_with_benchmarks)
+    consistency = evaluate_setup_b_time_consistency(scored_with_benchmarks)
+
+    assert hasattr(outliers, "columns")
+    assert hasattr(consistency, "columns")
+    if not outliers.empty:
+        assert {"group_type", "group_value", "horizon_days", "trimmed_mean_5_95", "top_1pct_return_share"}.issubset(
+            outliers.columns
+        )
+    if not consistency.empty:
+        assert {"benchmark", "group_type", "group_value", "positive_year_rate"}.issubset(consistency.columns)
 
 
 def test_setup_b_market_regime_uses_benchmark_when_present() -> None:

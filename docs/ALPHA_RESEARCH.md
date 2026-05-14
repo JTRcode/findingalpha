@@ -70,6 +70,8 @@ The current Setup B implementation is versioned as `setup_b_v1_broad_scanner`. I
 
 The generic `composite_score` is separate from the playbook setup scores. It is a broad technical ranking score for the latest screener table, while `daily_setup_b_trend_pullback_score` is the rule-based Setup B research score. They should not be interpreted as the same signal.
 
+Setup B v1 is frozen as the baseline. The baseline report is `docs/SETUP_B_V1_RESEARCH_REPORT.md`. Any transition toward Setup B v2 should follow `docs/SETUP_B_V2_TRANSITION_PLAN.md`; diagnostic indicators such as RSI, MACD, ADX, acceleration, and slope must remain non-gating unless a v2 proposal is accepted.
+
 Setup B bucket diagnostics report:
 
 - count by quality bucket

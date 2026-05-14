@@ -26,11 +26,15 @@ from trading_screener.research.setup_eval import (
     evaluate_setup_b_benchmark_relative_monthly,
     evaluate_setup_b_bucket_diagnostics,
     evaluate_setup_b_date_declustering,
+    evaluate_setup_b_filter_diagnostics,
+    evaluate_setup_b_indicator_diagnostics,
     evaluate_setup_b_interaction_slices,
     evaluate_setup_b_market_regime_diagnostics,
+    evaluate_setup_b_outlier_diagnostics,
     evaluate_setup_b_score_buckets,
     evaluate_setup_b_sector_declustering,
     evaluate_setup_b_slices,
+    evaluate_setup_b_time_consistency,
     evaluate_setup_b_variants,
 )
 from trading_screener.signals.daily_playbook import add_daily_playbook_scores, daily_setup_candidates
@@ -140,6 +144,16 @@ def main() -> None:
             settings.data_dir / "backtests",
             "setup_b_score_buckets",
         )
+        write_timestamped_outputs(
+            evaluate_setup_b_filter_diagnostics(universe_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_filter_diagnostics",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_indicator_diagnostics(universe_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_indicator_diagnostics",
+        )
         setup_b_diagnostics, setup_b_spreads = evaluate_setup_b_bucket_diagnostics(universe_evaluated)
         write_timestamped_outputs(
             setup_b_diagnostics,
@@ -191,6 +205,16 @@ def main() -> None:
             evaluate_setup_b_sector_declustering(context_evaluated),
             settings.data_dir / "backtests",
             "setup_b_sector_declustered",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_outlier_diagnostics(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_outlier_diagnostics",
+        )
+        write_timestamped_outputs(
+            evaluate_setup_b_time_consistency(context_evaluated),
+            settings.data_dir / "backtests",
+            "setup_b_time_consistency",
         )
 
         print(f"Wrote signal snapshot: {parquet_path}")
