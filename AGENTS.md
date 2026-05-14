@@ -5,14 +5,17 @@ Build a personal stock screener and alpha research dashboard that can test wheth
 
 ## Agent Responsibilities
 - Follow the workflow: research -> document -> decide -> implement -> test -> update docs.
+- Read `docs/DESIGN.md` before making architecture, screener, signal, dashboard, or research-methodology changes.
 - Keep assumptions explicit in docs, code comments where useful, and run outputs.
 - Prefer a practical MVP, but make data, storage, and validation choices deliberately.
 - Preserve modular provider interfaces so market data vendors can be replaced later.
 - Save timestamped signal snapshots on every screener run for later alpha validation.
+- Keep `docs/DESIGN.md` current when system boundaries, layer ownership, active scope, or signal definitions change.
 - Update docs and ADRs whenever implementation choices differ from the plan.
 
 ## Research-First Workflow
 Before adding main screener code, create or update:
+- `docs/DESIGN.md`
 - `docs/RESEARCH_PLAN.md`
 - `docs/API_COMPARISON.md`
 - `docs/DATA_REQUIREMENTS.md`
@@ -42,7 +45,20 @@ A screen ranks interesting stocks. A signal is a measurable hypothesis. A strate
 - Later execution phases require risk controls: max position size, max daily loss, max open trades, duplicate-order prevention, kill switch, market-hours guard, rejected-order handling, broker disconnect handling, full decision logs, and audit trails.
 
 ## Decision Documentation
-Use ADRs for major choices: data provider, storage, dashboard, backtesting engine, broker path, and alpha methodology. Keep `docs/DECISIONS.md` as the index.
+Use `docs/DESIGN.md` as the short design authority for current system structure, layer ownership, scope, and active signal definitions. Use ADRs for major choices: data provider, storage, dashboard, backtesting engine, broker path, and alpha methodology. Keep `docs/DECISIONS.md` as the index.
+
+Before changing a signal, dashboard page, research diagnostic, provider, or storage flow, check whether the change fits the design document. If it does not, update the design document first and explain the reason in `docs/RESEARCH_LOG.md` or an ADR.
+
+### Change Control Checklist
+Before implementing a new feature or changing an existing one, answer:
+- What research question does this answer?
+- Which layer owns it: data, feature, signal, research, dashboard, or docs?
+- Does this duplicate an existing metric, slice, score, or chart?
+- Does this change a frozen signal definition?
+- Does it require a new signal version?
+- Does it require an ADR?
+- What tests or research artifact will verify it?
+- Which docs need to be updated?
 
 ### ADR Format
 Each ADR must use:
